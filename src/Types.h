@@ -68,6 +68,7 @@ enum PieceValue {
 
 //-----------------------------------------------------------------------------
 enum MoveType {
+  NoMove,
   PawnMove,
   PawnLung,
   PawnCap,

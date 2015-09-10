@@ -63,6 +63,7 @@ public:
   void PonderHit();
   void PrintBoard() const;
   void Quit();
+  void Stop(const StopReason);
   void GetStats(int* depth,
                 int* seldepth = NULL,
                 uint64_t* nodes = NULL,

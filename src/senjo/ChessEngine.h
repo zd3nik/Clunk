@@ -314,7 +314,7 @@ public:
   //! Exit Perft()/Go() methods as quickly as possible.
   //! \param[in] reason The reason the search is being stopped
   //--------------------------------------------------------------------------
-  void Stop(const StopReason reason) { _stop |= reason; }
+  virtual void Stop(const StopReason reason) { _stop |= reason; }
 
   //--------------------------------------------------------------------------
   //! \brief Was the last search stopped by user request?

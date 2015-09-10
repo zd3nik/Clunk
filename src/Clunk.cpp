@@ -4,6 +4,7 @@
 
 #include "Clunk.h"
 #include "HashTable.h"
+#include "Stats.h"
 #include "senjo/Output.h"
 
 namespace clunk
@@ -47,28 +48,47 @@ const char _DIR_SHIFT[35] = {
 };
 
 //-----------------------------------------------------------------------------
-char      _dir[128][128] = {0};
-char      _dist[128][128] = {0};
-char      _pinDir[128] = {0};
-char      _board[128] = {0};
-int       _material[2] = {0};
-int       _king[2] = {0};
-int       _pieceCount[12] = {0};
-uint64_t  _atkd[128] = {0};
-uint64_t  _pawnCaps[128] = {0};
-uint64_t  _knightMoves[128] = {0};
-uint64_t  _bishopRook[128] = {0};
-uint64_t  _queenKing[128] = {0};
-Clunk     _node[MaxPlies];
+char               _dir[128][128] = {0};
+char               _dist[128][128] = {0};
+char               _pinDir[128] = {0};
+char               _board[128] = {0};
+int                _material[2] = {0};
+int                _king[2] = {0};
+int                _pieceCount[12] = {0};
+uint64_t           _atkd[128] = {0};
+uint64_t           _pawnCaps[128] = {0};
+uint64_t           _knightMoves[128] = {0};
+uint64_t           _bishopRook[128] = {0};
+uint64_t           _queenKing[128] = {0};
+Clunk              _node[MaxPlies];
 std::set<uint64_t> _seen;
 
 //--------------------------------------------------------------------------
-int       _depth = 0;
-int       _seldepth = 0;
-int       _movenum = 0;
-uint64_t  _nodes = 0;
-uint64_t  _qnodes = 0;
-Move      _currmove;
+int                _stop = 0;
+int                _depth = 0;
+int                _seldepth = 0;
+int                _movenum = 0;
+uint64_t           _execs = 0;
+uint64_t           _nodes = 0;
+uint64_t           _qnodes = 0;
+Move               _currmove;
+Stats              _stats;
+TranspositionTable _tt;
+
+//----------------------------------------------------------------------------
+void InitSearch() {
+  _stop     = 0;
+  _depth    = 0;
+  _seldepth = 0;
+  _movenum  = 0;
+  _execs    = 0;
+  _nodes    = 0;
+  _qnodes   = 0;
+
+  _currmove.Clear();
+  _stats.Clear();
+  _tt.ResetCounters();
+}
 
 //--------------------------------------------------------------------------
 void InitNodes(Clunk* root) {
@@ -572,6 +592,8 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   assert(!move.Promo() || COLOR(move.Promo()) == color);
   assert(_board[move.To()] == move.Cap());
 
+  _execs++;
+
   const int from  = move.From();
   const int to    = move.To();
   const int cap   = move.Cap();
@@ -830,7 +852,7 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
     AddAttacksFrom(_board[to], to);
   }
 
-  assert(VerifyAttacks(true));
+//  assert(VerifyAttacks(true));
 }
 
 //-----------------------------------------------------------------------------
@@ -979,7 +1001,7 @@ void Undo(const Move& move, const Clunk& src) {
     AddAttacksFrom(_board[from], from);
   }
 
-  assert(VerifyAttacks(true));
+//  assert(VerifyAttacks(true));
 }
 
 //-----------------------------------------------------------------------------
@@ -1541,13 +1563,44 @@ uint64_t PerftSearch(Clunk& node, const int depth) {
   }
 
   uint64_t count = 0;
-  while (node.moveIndex < node.moveCount) {
+  while (!_stop && (node.moveIndex < node.moveCount)) {
     const Move& move = node.moves[node.moveIndex++];
     Exec<color>(move, node, *node.child);
     count += PerftSearch<!color>(*node.child, (depth - 1));
     Undo<color>(move, node);
   }
   return count;
+}
+
+//-----------------------------------------------------------------------------
+template<Color color>
+uint64_t PerftSearchRoot(Clunk& node, const int depth) {
+  assert(!node.ply);
+  assert(!node.parent);
+  assert(node.child);
+  assert(VerifyAttacks(true));
+
+  GenerateMoves<color>(node);
+  std::sort(node.moves, (node.moves + node.moveCount), Move::LexicalCompare);
+
+  uint64_t total = 0;
+  if (depth > 1) {
+    while (!_stop && (node.moveIndex < node.moveCount)) {
+      const Move& move = node.moves[node.moveIndex++];
+      Exec<color>(move, node, *node.child);
+      const uint64_t count = PerftSearch<!color>(*node.child, (depth - 1));
+      Undo<color>(move, node);
+      senjo::Output() << move.ToString() << ' ' << count;
+      total += count;
+    }
+  }
+  else {
+    while (!_stop && (node.moveIndex < node.moveCount)) {
+      senjo::Output() << node.moves[node.moveIndex++].ToString() << " 1 ";
+      total++;
+    }
+  }
+  return total;
 }
 
 //-----------------------------------------------------------------------------
@@ -1672,9 +1725,6 @@ const char* Clunk::SetPosition(const char* fen)
     return NULL;
   }
 
-  const std::string currentFEN = GetFEN();
-  const char* reset = (currentFEN == fen) ? _STARTPOS : currentFEN.c_str();
-
   memset(_board, 0, sizeof(_board));
   memset(_material, 0, sizeof(_material));
   memset(_king, -1, sizeof(_king));
@@ -1696,7 +1746,7 @@ const char* Clunk::SetPosition(const char* fen)
     for (int x = 0; x < 8; ++x, ++p) {
       if (!*p) {
         senjo::Output() << "Incomplete board position";
-        SetPosition(reset);
+        SetPosition(_STARTPOS);
         return NULL;
       }
       else if (isdigit(*p)) {
@@ -1786,7 +1836,7 @@ const char* Clunk::SetPosition(const char* fen)
           break;
         default:
           senjo::Output() << "Invalid character at " << p;
-          SetPosition(reset);
+          SetPosition(_STARTPOS);
           return NULL;
         }
       }
@@ -1797,12 +1847,12 @@ const char* Clunk::SetPosition(const char* fen)
       }
       else if (*p) {
         senjo::Output() << "Expected '/' at " << p;
-        SetPosition(reset);
+        SetPosition(_STARTPOS);
         return NULL;
       }
       else {
         senjo::Output() << "Incomplete board position";
-        SetPosition(reset);
+        SetPosition(_STARTPOS);
         return NULL;
       }
     }
@@ -1810,12 +1860,12 @@ const char* Clunk::SetPosition(const char* fen)
 
   if (!IS_SQUARE(_king[White])) {
     senjo::Output() << "No white king in this position";
-    SetPosition(reset);
+    SetPosition(_STARTPOS);
     return NULL;
   }
   if (!IS_SQUARE(_king[Black])) {
     senjo::Output() << "No black king in this position";
-    SetPosition(reset);
+    SetPosition(_STARTPOS);
     return NULL;
   }
 
@@ -1836,7 +1886,7 @@ const char* Clunk::SetPosition(const char* fen)
     state |= Black;
     if (AttackedBy<Black>(_king[White])) {
       senjo::Output() << "The king can be captured in this position";
-      SetPosition(reset);
+      SetPosition(_STARTPOS);
       return NULL;
     }
     break;
@@ -1844,17 +1894,17 @@ const char* Clunk::SetPosition(const char* fen)
     state |= White;
     if (AttackedBy<White>(_king[Black])) {
       senjo::Output() << "The king can be captured in this position";
-      SetPosition(reset);
+      SetPosition(_STARTPOS);
       return NULL;
     }
     break;
   case 0:
     senjo::Output() << "Missing side to move (w|b)";
-    SetPosition(reset);
+    SetPosition(_STARTPOS);
     return NULL;
   default:
     senjo::Output() << "Expected 'w' or 'b' at " << p;
-    SetPosition(reset);
+    SetPosition(_STARTPOS);
     return NULL;
   }
 
@@ -1869,7 +1919,7 @@ const char* Clunk::SetPosition(const char* fen)
     case 'Q': state |= WhiteLong;  continue;
     default:
       senjo::Output() << "Unexpected castle rights at " << p;
-      SetPosition(reset);
+      SetPosition(_STARTPOS);
       return NULL;
     }
     break;
@@ -1886,7 +1936,7 @@ const char* Clunk::SetPosition(const char* fen)
     {
       senjo::Output() << "Invalid en passant square: "
                       << senjo::Square(ep).ToString();
-      SetPosition(reset);
+      SetPosition(_STARTPOS);
       return NULL;
     }
   }
@@ -2098,6 +2148,13 @@ void Clunk::PrintBoard() const
 //----------------------------------------------------------------------------
 void Clunk::Quit() {
   ChessEngine::Quit();
+  clunk::_stop |= senjo::ChessEngine::FullStop;
+}
+
+//----------------------------------------------------------------------------
+void Clunk::Stop(const StopReason reason) {
+  ChessEngine::Stop(reason);
+  clunk::_stop |= reason;
 }
 
 //----------------------------------------------------------------------------
@@ -2117,7 +2174,7 @@ void Clunk::GetStats(int* depth,
     *seldepth = _seldepth;
   }
   if (nodes) {
-    *nodes = (_nodes + _qnodes);
+    *nodes = _execs;
   }
   if (qnodes) {
     *qnodes = _qnodes;
@@ -2141,45 +2198,22 @@ uint64_t Clunk::MyPerft(const int depth)
     return 0;
   }
 
-  assert(!ply);
-  assert(!parent);
-  assert(VerifyAttacks(true));
+  if (_debug) {
+    PrintBoard();
+    senjo::Output() << GetFEN();
+  }
 
-  const Color color = COLOR(state);
-  if (color) {
-    GenerateMoves<Black>(*this);
-  }
-  else {
-    GenerateMoves<White>(*this);
-  }
-  std::sort(moves, (moves + moveCount), Move::LexicalCompare);
+  InitSearch();
 
-  uint64_t total = 0;
-  uint64_t count = 0;
-  if (depth > 1) {
-    while (moveIndex < moveCount) {
-      const Move& move = moves[moveIndex++];
-      if (color) {
-        Exec<Black>(move, *this, *child);
-        count = PerftSearch<White>(*child, (depth - 1));
-        Undo<Black>(move, *this);
-      }
-      else {
-        Exec<White>(move, *this, *child);
-        count = PerftSearch<Black>(*child, (depth - 1));
-        Undo<White>(move, *this);
-      }
-      senjo::Output() << move.ToString() << ' ' << count;
-      total += count;
-    }
-  }
-  else {
-    while (moveIndex < moveCount) {
-      senjo::Output() << moves[moveIndex++].ToString() << " 1 ";
-      total++;
-    }
-  }
-  return total;
+  const int d = std::min<int>(depth, MaxPlies);
+  const uint64_t count = WhiteToMove() ? PerftSearchRoot<White>(*this, d)
+                                       : PerftSearchRoot<Black>(*this, d);
+
+  const uint64_t msecs = (senjo::Now() - _startTime);
+  senjo::Output() << "Perft " << count << ' '
+                  << senjo::Rate((count / 1000), msecs) << " KLeafs/sec";
+
+  return count;
 }
 
 //----------------------------------------------------------------------------
