@@ -103,14 +103,28 @@ enum CheckState {
 
 //-----------------------------------------------------------------------------
 enum {
-  MaxPlies        = 100,
-  MaxMoves        = 128,
-  StartMaterial   = ((8 * PawnValue) + (2 * KnightValue) +
-                     (2 * BishopValue) + (2 * RookValue) +  QueenValue),
-  WinningScore    = 30000,
-  MateScore       = 31000,
-  Infinity        = 32000,
-  HugeDelta       = 64000
+  WhiteKingOffset   = 2,
+  BlackKingOffset   = 3,
+  PawnOffset        = 4,
+  BlackPawnOffset   = 12,
+  KnightOffset      = 20,
+  BlackKnightOffset = 30,
+  SliderOffset      = 40,
+  BishopOffset      = 40,
+  BlackBishopOffset = 50,
+  RookOffset        = 60,
+  BlackRookOffset   = 70,
+  QueenOffset       = 80,
+  BlackQueenOffset  = 90,
+  PieceListSize     = 100,
+  MaxPlies          = 100,
+  MaxMoves          = 128,
+  StartMaterial     = ((8 * PawnValue) + (2 * KnightValue) +
+                       (2 * BishopValue) + (2 * RookValue) +  QueenValue),
+  WinningScore      = 30000,
+  MateScore         = 31000,
+  Infinity          = 32000,
+  HugeDelta         = 64000
 };
 
 } // namespace clunk
