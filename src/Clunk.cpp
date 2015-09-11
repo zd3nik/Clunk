@@ -57,8 +57,8 @@ const int _DIR_SHIFT[35] = {
 char               _dir[128][128] = {0};
 char               _dist[128][128] = {0};
 char               _pinDir[128] = {0};
-int                _offset[128] = {0};
-Piece              _pc[PieceListSize] = {0,0};
+Piece*             _board[128] = {0};
+Piece              _piece[PieceListSize];
 int                _pcount[12] = {0};
 int                _material[2] = {0};
 uint64_t           _atkd[128] = {0};
@@ -69,7 +69,14 @@ uint64_t           _queenKing[128] = {0};
 Clunk              _node[MaxPlies];
 std::set<uint64_t> _seen;
 
-//--------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+Piece* _EMPTY              = _piece;
+const Piece* _WHITE_KING   = (_piece + WhiteKingOffset);
+const Piece* _BLACK_KING   = (_piece + BlackKingOffset);
+const Piece* _FIRST_SLIDER = (_piece + BishopOffset);
+const Piece* _FIRST_ROOK   = (_piece + RookOffset);
+
+//-----------------------------------------------------------------------------
 int                _stop = 0;
 int                _depth = 0;
 int                _seldepth = 0;
@@ -191,147 +198,170 @@ inline int ValueOf(const int pc) {
 }
 
 //-----------------------------------------------------------------------------
-inline int AddPiece(const int type, const int sqr) {
+inline void AddPiece(const int type, const int sqr) {
   assert(IS_SQUARE(sqr));
-  int offset;
+  Piece* pc;
   switch (type) {
   case (White|Pawn):
-    offset = (PawnOffset + _pcount[White|Pawn]++);
-    assert(offset < BlackPawnOffset);
+    assert(_pcount[White|Pawn] < 8);
+    pc = (_piece + PawnOffset + _pcount[White|Pawn]++);
+    assert(pc < (_piece + BlackPawnOffset));
     break;
   case (Black|Pawn):
-    offset = (BlackPawnOffset + _pcount[Black|Pawn]++);
-    assert(offset < KnightOffset);
+    assert(_pcount[Black|Pawn] < 8);
+    pc = (_piece + BlackPawnOffset + _pcount[Black|Pawn]++);
+    assert(pc < (_piece + KnightOffset));
     break;
   case (White|Knight):
-    offset = (KnightOffset + _pcount[White|Knight]++);
-    assert(offset < BlackKnightOffset);
-    _pcount[White]++;
+    assert(_pcount[White|Knight] < 10);
+    pc = (_piece + KnightOffset + _pcount[White|Knight]++);
+    assert(pc < (_piece + BlackKnightOffset));
     break;
   case (Black|Knight):
-    offset = (BlackKnightOffset + _pcount[Black|Knight]++);
-    assert(offset < BishopOffset);
-    _pcount[Black]++;
+    assert(_pcount[Black|Knight] < 10);
+    pc = (_piece + BlackKnightOffset + _pcount[Black|Knight]++);
+    assert(pc < (_piece + BishopOffset));
     break;
   case (White|Bishop):
-    offset = (BishopOffset + _pcount[White|Bishop]++);
-    assert(offset < BlackBishopOffset);
+    assert(_pcount[White|Bishop] < 10);
+    assert(_pcount[White] < 13);
+    pc = (_piece + BishopOffset + _pcount[White|Bishop]++);
+    assert(pc < (_piece + BlackBishopOffset));
     _pcount[White]++;
     break;
   case (Black|Bishop):
-    offset = (BlackBishopOffset + _pcount[Black|Bishop]++);
-    assert(offset < RookOffset);
+    assert(_pcount[Black|Bishop] < 10);
+    assert(_pcount[Black] < 13);
+    pc = (_piece + BlackBishopOffset + _pcount[Black|Bishop]++);
+    assert(pc < (_piece + RookOffset));
     _pcount[Black]++;
     break;
   case (White|Rook):
-    offset = (RookOffset + _pcount[White|Rook]++);
-    assert(offset < BlackRookOffset);
+    assert(_pcount[White|Rook] < 10);
+    assert(_pcount[White] < 13);
+    pc = (_piece + RookOffset + _pcount[White|Rook]++);
+    assert(pc < (_piece + BlackRookOffset));
     _pcount[White]++;
     break;
   case (Black|Rook):
-    offset = (BlackRookOffset + _pcount[Black|Rook]++);
-    assert(offset < QueenOffset);
+    assert(_pcount[Black|Rook] < 10);
+    assert(_pcount[Black] < 13);
+    pc = (_piece + BlackRookOffset + _pcount[Black|Rook]++);
+    assert(pc < (_piece + QueenOffset));
     _pcount[Black]++;
     break;
   case (White|Queen):
-    offset = (QueenOffset + _pcount[White|Queen]++);
-    assert(offset < BlackQueenOffset);
+    assert(_pcount[White|Queen] < 9);
+    assert(_pcount[White] < 13);
+    pc = (_piece + QueenOffset + _pcount[White|Queen]++);
+    assert(pc < (_piece + BlackQueenOffset));
     _pcount[White]++;
     break;
   case (Black|Queen):
-    offset = (BlackQueenOffset + _pcount[Black|Queen]++);
-    assert(offset < PieceListSize);
+    assert(_pcount[Black|Queen] < 9);
+    assert(_pcount[Black] < 13);
+    pc = (_piece + BlackQueenOffset + _pcount[Black|Queen]++);
+    assert(pc < (_piece + PieceListSize));
     _pcount[Black]++;
     break;
   case (White|King):
-    offset = WhiteKingOffset;
+    pc = const_cast<Piece*>(_WHITE_KING);
+    assert(!pc->type && !pc->sqr); // only allow this once
     break;
   case (Black|King):
-    offset = BlackKingOffset;
+    pc = const_cast<Piece*>(_BLACK_KING);
+    assert(!pc->type && !pc->sqr); // only allow this once
     break;
   default:
     assert(false);
-    offset = 0;
+    pc = NULL;
   }
-  _pc[offset].type = type;
-  _pc[offset].sqr = sqr;
-  return offset;
+  assert(pc && (pc != _EMPTY));
+  pc->type = type;
+  pc->sqr = sqr;
+  _board[sqr] = pc;
 }
 
 //-----------------------------------------------------------------------------
-inline void RemovePiece(const int type, const int offset) {
+inline void RemovePiece(const int type, const int sqr) {
+  assert((type >= Pawn) && (type < King));
+  assert(IS_SQUARE(sqr));
+  Piece* pc = _board[sqr];
+  assert(pc && (pc != _EMPTY));
+  assert(pc->type == type);
+  assert(pc->sqr == sqr);
   switch (type) {
   case (White|Pawn):
     assert((_pcount[type] > 0) && (_pcount[type] <= 8));
-    assert(offset >= PawnOffset);
-    assert(offset < (PawnOffset + _pcount[type]));
-    _pc[offset] = _pc[PawnOffset + --_pcount[White|Pawn]];
+    assert(pc >= (_piece + PawnOffset));
+    assert(pc < (_piece + PawnOffset + _pcount[type]));
+    *pc = _piece[PawnOffset + --_pcount[White|Pawn]];
     break;
   case (Black|Pawn):
     assert((_pcount[type] > 0) && (_pcount[type] <= 8));
-    assert(offset >= BlackPawnOffset);
-    assert(offset < (BlackPawnOffset + _pcount[type]));
-    _pc[offset] = _pc[BlackPawnOffset + --_pcount[Black|Pawn]];
+    assert(pc >= (_piece + BlackPawnOffset));
+    assert(pc < (_piece + BlackPawnOffset + _pcount[type]));
+    *pc = _piece[BlackPawnOffset + --_pcount[Black|Pawn]];
     break;
   case (White|Knight):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= KnightOffset);
-    assert(offset < (KnightOffset + _pcount[type]));
-    _pc[offset] = _pc[KnightOffset + --_pcount[White|Knight]];
-    --_pcount[White];
+    assert(pc >= (_piece + KnightOffset));
+    assert(pc < (_piece + KnightOffset + _pcount[type]));
+    *pc = _piece[KnightOffset + --_pcount[White|Knight]];
     break;
   case (Black|Knight):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= BlackPawnOffset);
-    assert(offset < (BlackPawnOffset + _pcount[type]));
-    _pc[offset] = _pc[BlackKnightOffset + --_pcount[Black|Knight]];
-    --_pcount[Black];
+    assert(pc >= (_piece + BlackKnightOffset));
+    assert(pc < (_piece + BlackKnightOffset + _pcount[type]));
+    *pc = _piece[BlackKnightOffset + --_pcount[Black|Knight]];
     break;
   case (White|Bishop):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= BishopOffset);
-    assert(offset < (BishopOffset + _pcount[type]));
-    _pc[offset] = _pc[BishopOffset + --_pcount[White|Bishop]];
+    assert(pc >= (_piece + BishopOffset));
+    assert(pc < (_piece + BishopOffset + _pcount[type]));
+    *pc = _piece[BishopOffset + --_pcount[White|Bishop]];
     --_pcount[White];
     break;
   case (Black|Bishop):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= BlackBishopOffset);
-    assert(offset < (BlackBishopOffset + _pcount[type]));
-    _pc[offset] = _pc[BlackBishopOffset + --_pcount[Black|Bishop]];
+    assert(pc >= (_piece + BlackBishopOffset));
+    assert(pc < (_piece + BlackBishopOffset + _pcount[type]));
+    *pc = _piece[BlackBishopOffset + --_pcount[Black|Bishop]];
     --_pcount[Black];
     break;
   case (White|Rook):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= RookOffset);
-    assert(offset < (RookOffset + _pcount[type]));
-    _pc[offset] = _pc[RookOffset + --_pcount[White|Rook]];
+    assert(pc >= (_piece + RookOffset));
+    assert(pc < (_piece + RookOffset + _pcount[type]));
+    *pc = _piece[RookOffset + --_pcount[White|Rook]];
     --_pcount[White];
     break;
   case (Black|Rook):
     assert((_pcount[type] > 0) && (_pcount[type] <= 10));
-    assert(offset >= BlackRookOffset);
-    assert(offset < (BlackRookOffset + _pcount[type]));
-    _pc[offset] = _pc[BlackRookOffset + --_pcount[Black|Rook]];
+    assert(pc >= (_piece + BlackRookOffset));
+    assert(pc < (_piece + BlackRookOffset + _pcount[type]));
+    *pc = _piece[BlackRookOffset + --_pcount[Black|Rook]];
     --_pcount[Black];
     break;
   case (White|Queen):
     assert((_pcount[type] > 0) && (_pcount[type] <= 9));
-    assert(offset >= QueenOffset);
-    assert(offset < (QueenOffset + _pcount[type]));
-    _pc[offset] = _pc[QueenOffset + --_pcount[White|Queen]];
+    assert(pc >= (_piece + QueenOffset));
+    assert(pc < (_piece + QueenOffset + _pcount[type]));
+    *pc = _piece[QueenOffset + --_pcount[White|Queen]];
     --_pcount[White];
     break;
   case (Black|Queen):
     assert((_pcount[type] > 0) && (_pcount[type] <= 9));
-    assert(offset >= BlackQueenOffset);
-    assert(offset < (BlackQueenOffset + _pcount[type]));
-    _pc[offset] = _pc[BlackQueenOffset + --_pcount[Black|Queen]];
+    assert(pc >= (_piece + BlackQueenOffset));
+    assert(pc < (_piece + BlackQueenOffset + _pcount[type]));
+    *pc = _piece[BlackQueenOffset + --_pcount[Black|Queen]];
     --_pcount[Black];
     break;
   default:
     assert(false);
   }
+  _board[pc->sqr] = pc;
+  _board[sqr] = _EMPTY;
 }
 
 //-----------------------------------------------------------------------------
@@ -527,9 +557,9 @@ inline void AddAttack(const int from, const int to, const int dir) {
   assert(IS_SQUARE(from));
   assert(IS_SQUARE(to));
   assert(from != to);
-  assert(_offset[from] >= SliderOffset);
-  assert(IS_SLIDER(_pc[_offset[from]].type));
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(IS_SLIDER(_board[from]->type));
+  assert(_board[from]->sqr == from);
   assert(Direction(from, to) == dir);
   assert(!(_atkd[to] & (0xFFULL << DirShift(dir))) ||
          ((_atkd[to] & (0xFFULL << DirShift(dir))) ==
@@ -547,9 +577,9 @@ inline void ClearAttack(const int to, const int dir) {
 void AddAttacksFrom(const int pc, const int from) {
   assert(IS_SLIDER(pc));
   assert(IS_SQUARE(from));
-  assert(_offset[from] >= SliderOffset);
-  assert(_pc[_offset[from]].type == pc);
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(_board[from]->type == pc);
+  assert(_board[from]->sqr == from);
   uint64_t mvs = (pc < Rook)  ? _bishopRook[from] :
                  (pc < Queen) ? _bishopRook[from + 8]
                               : _queenKing[from];
@@ -562,7 +592,7 @@ void AddAttacksFrom(const int pc, const int from) {
       assert(IS_SQUARE(to));
       assert(Direction(from, to) == dir);
       AddAttack(from, to, dir);
-      if ((to == end) || _offset[to]) {
+      if ((to == end) || (_board[to] != _EMPTY)) {
         break;
       }
     }
@@ -573,9 +603,9 @@ void AddAttacksFrom(const int pc, const int from) {
 void ClearAttacksFrom(const int pc, const int from) {
   assert(IS_SLIDER(pc));
   assert(IS_SQUARE(from));
-  assert(_offset[from] >= SliderOffset);
-  assert(_pc[_offset[from]].type == pc);
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(_board[from]->type == pc);
+  assert(_board[from]->sqr == from);
   uint64_t mvs = (pc < Rook)  ? _bishopRook[from] :
                  (pc < Queen) ? _bishopRook[from + 8]
                               : _queenKing[from];
@@ -588,7 +618,7 @@ void ClearAttacksFrom(const int pc, const int from) {
       assert(IS_SQUARE(to));
       assert(Direction(from, to) == dir);
       ClearAttack(to, dir);
-      if ((to == end) || _offset[to]) {
+      if ((to == end) || (_board[to] != _EMPTY)) {
         break;
       }
     }
@@ -602,14 +632,14 @@ void TruncateAttacks(const int to, const int stop) {
     if (tmp & 0xFF) {
       const int from = static_cast<int>((tmp & 0xFF) - 1);
       assert(IS_SQUARE(from));
-      assert(_offset[from] >= SliderOffset);
-      assert(IS_SLIDER(_pc[_offset[from]].type));
-      assert(_pc[_offset[from]].sqr == from);
+      assert(_board[from] >= _FIRST_SLIDER);
+      assert(IS_SLIDER(_board[from]->type));
+      assert(_board[from]->sqr == from);
       const int dir = Direction(from, to);
       for (int ato = (to + dir); IS_SQUARE(ato); ato += dir) {
         assert(Direction(from, ato) == dir);
         ClearAttack(ato, dir);
-        if ((ato == stop) || _offset[ato]) {
+        if ((ato == stop) || (_board[ato] != _EMPTY)) {
           break;
         }
       }
@@ -620,20 +650,20 @@ void TruncateAttacks(const int to, const int stop) {
 //-----------------------------------------------------------------------------
 void ExtendAttacks(const int to) {
   assert(IS_SQUARE(to));
-  assert(!_offset[to]);
+  assert(_board[to] == _EMPTY);
   for (uint64_t tmp = _atkd[to]; tmp; tmp >>= 8) {
     if (tmp & 0xFF) {
       const int from = static_cast<int>((tmp & 0xFF) - 1);
       assert(IS_SQUARE(from));
-      assert(_offset[from] >= SliderOffset);
-      assert(IS_SLIDER(_pc[_offset[from]].type));
-      assert(_pc[_offset[from]].sqr == from);
+      assert(_board[from] >= _FIRST_SLIDER);
+      assert(IS_SLIDER(_board[from]->type));
+      assert(_board[from]->sqr == from);
       const int dir = Direction(from, to);
       assert(IS_DIR(dir));
       for (int ato = (to + dir); IS_SQUARE(ato); ato += dir) {
         assert(Direction(from, ato) == dir);
         AddAttack(from, ato, dir);
-        if (_offset[ato]) {
+        if (_board[ato] != _EMPTY) {
           break;
         }
       }
@@ -649,28 +679,23 @@ bool AttackedBy(const int sqr) {
     if (mvs & 0xFF) {
       assert(IS_SQUARE((mvs & 0xFF) - 1));
       assert(IS_DIR(Direction(((mvs & 0xFF) - 1), sqr)));
-      assert(_offset[(mvs & 0xFF) - 1] >= SliderOffset);
-      if (COLOR(_pc[_offset[(mvs & 0xFF) - 1]].type) == color) {
-        assert(IS_SLIDER(_pc[_offset[(mvs & 0xFF) - 1]].type));
-        assert(_pc[_offset[(mvs & 0xFF) - 1]].sqr == int((mvs & 0xFF) - 1));
-        assert(_pcount[_pc[_offset[(mvs & 0xFF) - 1]].type] > 0);
-        assert(_pcount[color] >= _pcount[_pc[_offset[(mvs & 0xFF) - 1]].type]);
+      assert(_board[(mvs & 0xFF) - 1] >= _FIRST_SLIDER);
+      if (COLOR(_board[(mvs & 0xFF) - 1]->type) == color) {
+        assert(IS_SLIDER(_board[(mvs & 0xFF) - 1]->type));
+        assert(_board[(mvs & 0xFF) - 1]->sqr == ((mvs & 0xFF) - 1));
         return true;
       }
     }
   }
   if (_pcount[color|Knight]) {
-    assert(_pcount[color] >= _pcount[color|Knight]);
+    assert(_pcount[color|Knight] > 0);
     for (uint64_t mvs = _knightMoves[sqr]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
       const int from = ((mvs & 0xFF) - 1);
       assert(IS_SQUARE(from));
       assert(from != sqr);
-      if ((_offset[from] >= (color ? BlackKnightOffset : KnightOffset)) &&
-          (_offset[from] < (color ? BishopOffset : BlackKnightOffset)))
-      {
-        assert(_pc[_offset[from]].type == (color|Knight));
-        assert(_pc[_offset[from]].sqr == from);
+      if (_board[from]->type == (color|Knight)) {
+        assert(_board[from]->sqr == from);
         return true;
       }
     }
@@ -679,29 +704,22 @@ bool AttackedBy(const int sqr) {
     assert(mvs & 0xFF);
     const int from = ((mvs & 0xFF) - 1);
     assert(IS_DIR(Direction(sqr, from)));
-    if (_offset[from] == (color ? BlackKingOffset : WhiteKingOffset)) {
+    if (_board[from] == (color ? _BLACK_KING : _WHITE_KING)) {
+      assert(_board[from]->type == (color|King));
+      assert(_board[from]->sqr == from);
       return true;
     }
-    if (color) {
-      switch (Direction(sqr, from)) {
-      case NorthWest: case NorthEast:
-        if ((_offset[from] >= BlackPawnOffset) &&
-            (_offset[from] < KnightOffset))
-        {
-          assert(_pc[_offset[from]].type == (Black|Pawn));
-          assert(_pc[_offset[from]].sqr == from);
+    if (_board[from]->type == (color|Pawn)) {
+      assert(_board[from]->sqr == from);
+      if (color) {
+        switch (Direction(sqr, from)) {
+        case NorthWest: case NorthEast:
           return true;
         }
       }
-    }
-    else {
-      switch (Direction(sqr, from)) {
-      case SouthWest: case SouthEast:
-        if ((_offset[from] >= PawnOffset) &&
-            (_offset[from] < BlackPawnOffset))
-        {
-          assert(_pc[_offset[from]].type == (White|Pawn));
-          assert(_pc[_offset[from]].sqr == from);
+      else {
+        switch (Direction(sqr, from)) {
+        case SouthWest: case SouthEast:
           return true;
         }
       }
@@ -721,10 +739,10 @@ bool VerifyAttacksTo(const int to, const bool do_assert) {
     for (int from = (to - dir);; from -= dir) {
       assert(IS_SQUARE(from));
       assert(Direction(from, to) == dir);
-      if (_offset[from] >= SliderOffset) {
-        const int pc = _pc[_offset[from]].type;
+      if (_board[from] >= _FIRST_SLIDER) {
+        const int pc = _board[from]->type;
         assert(IS_SLIDER(pc));
-        assert(_pc[_offset[from]].sqr == from);
+        assert(_board[from]->sqr == from);
         if ((IS_DIAG(dir) && ((Black|pc) != (Black|Rook))) ||
             (IS_CROSS(dir) && ((Black|pc) != (Black|Bishop))))
         {
@@ -732,7 +750,7 @@ bool VerifyAttacksTo(const int to, const bool do_assert) {
         }
         break;
       }
-      if ((from == end) || _offset[from]) {
+      if ((from == end) || (_board[from] != _EMPTY)) {
         break;
       }
     }
@@ -774,12 +792,13 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   const int to    = move.To();
   const int cap   = move.Cap();
   const int promo = move.Promo();
-  const int moved = _offset[from];
-  const int pc    = _pc[moved].type;
 
-  assert(moved);
-  assert(_pc[moved].sqr == from);
-  assert(pc);
+  Piece* moved = _board[from];
+  assert(moved && (moved != _EMPTY));
+  assert(moved->type);
+  assert(moved->sqr == from);
+
+  const int pc = moved->type;
   assert(COLOR(pc) == color);
 
   if (IS_SLIDER(pc)) {
@@ -792,23 +811,23 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   switch (move.Type()) {
   case PawnMove:
     assert(pc == (color|Pawn));
-    assert(!_offset[to]);
+    assert(_board[to] == _EMPTY);
     assert(!cap);
-    _offset[from] = 0;
     if (promo) {
       assert(IS_PROMO(promo));
       assert(COLOR(promo) == color);
       assert(YC(to) == (color ? 0 : 7));
-      RemovePiece((color|Pawn), moved);
-      _offset[to] = AddPiece(promo, to);
+      RemovePiece((color|Pawn), from);
+      AddPiece(promo, to);
       _material[color] += (ValueOf(promo) - PawnValue);
       dest.pawnKey = (src.pawnKey ^ _HASH[pc][from]);
       dest.pieceKey = (src.pieceKey ^ _HASH[promo][to]);
     }
     else {
       assert(YC(to) != (color ? 0 : 7));
-      _offset[to] = moved;
-      _pc[moved].sqr = to;
+      _board[from] = _EMPTY;
+      _board[to] = moved;
+      moved->sqr = to;
       dest.pawnKey = (src.pawnKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
       dest.pieceKey = src.pieceKey;
     }
@@ -820,13 +839,13 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   case PawnLung:
     assert(pc == (color|Pawn));
     assert(YC(from) == (color ? 6 : 1));
-    assert(!_offset[to]);
-    assert(!_offset[to + (color ? North : South)]);
+    assert(_board[to] == _EMPTY);
+    assert(_board[to + (color ? North : South)] == _EMPTY);
     assert(!cap);
     assert(!promo);
-    _offset[from] = 0;
-    _offset[to] = moved;
-    _pc[moved].sqr = to;
+    _board[from] = _EMPTY;
+    _board[to] = moved;
+    moved->sqr = to;
     dest.state = ((src.state ^ 1) & _TOUCH[from] & _TOUCH[to]);
     dest.ep = (to + (color ? North : South));
     dest.rcount = 0;
@@ -836,18 +855,17 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
     break;
   case PawnCap:
     assert(pc == (color|Pawn));
-    _offset[from] = 0;
     if (promo) {
       assert(IS_PROMO(promo));
       assert(COLOR(promo) == color);
       assert(YC(to) == (color ? 0 : 7));
       assert(cap);
-      assert(_offset[to]);
-      assert(cap == _pc[_offset[to]].type);
-      assert(_pc[_offset[to]].sqr == to);
-      RemovePiece((color|Pawn), moved);
-      RemovePiece(cap, _offset[to]);
-      _offset[to] = AddPiece(promo, to);
+      assert(_board[to] != _EMPTY);
+      assert(cap == _board[to]->type);
+      assert(_board[to]->sqr == to);
+      RemovePiece((color|Pawn), from);
+      RemovePiece(cap, to);
+      AddPiece(promo, to);
       _material[color] += (ValueOf(promo) - PawnValue);
       _material[!color] -= ValueOf(cap);
       dest.pawnKey = (src.pawnKey ^ _HASH[pc][from]);
@@ -855,25 +873,26 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
     }
     else {
       assert(YC(to) != (color ? 0 : 7));
+      _board[from] = _EMPTY;
       if (cap >= Knight) {
-        assert(_offset[to]);
-        assert(cap == _pc[_offset[to]].type);
-        assert(_pc[_offset[to]].sqr == to);
-        RemovePiece(cap, _offset[to]);
-        _offset[to] = moved;
-        _pc[moved].sqr = to;
+        assert(_board[to] != _EMPTY);
+        assert(cap == _board[to]->type);
+        assert(_board[to]->sqr == to);
+        RemovePiece(cap, to);
+        _board[to] = moved;
+        moved->sqr = to;
         _material[!color] -= ValueOf(cap);
         dest.pawnKey = (src.pawnKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
         dest.pieceKey = (src.pieceKey ^ _HASH[cap][to]);
       }
       else if (cap) {
         assert(cap == ((!color)|Pawn));
-        assert(_offset[to]);
-        assert(cap == _pc[_offset[to]].type);
-        assert(_pc[_offset[to]].sqr == to);
-        RemovePiece(((!color)|Pawn), _offset[to]);
-        _offset[to] = moved;
-        _pc[moved].sqr = to;
+        assert(_board[to] != _EMPTY);
+        assert(cap == _board[to]->type);
+        assert(_board[to]->sqr == to);
+        RemovePiece(((!color)|Pawn), to);
+        _board[to] = moved;
+        moved->sqr = to;
         _material[!color] -= ValueOf(cap);
         dest.pawnKey = (src.pawnKey ^ _HASH[pc][from] ^ _HASH[pc][to] ^
                         _HASH[cap][to]);
@@ -881,17 +900,19 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
       }
       else {
         assert(src.ep && (to == src.ep));
-        assert(_offset[src.ep + (color ? North : South)]);
-        assert(_pc[_offset[src.ep + (color ? North : South)]].type == ((!color)|Pawn));
-        RemovePiece(((!color)|Pawn), _offset[src.ep + (color ? North : South)]);
-        _offset[to] = moved;
-        _pc[moved].sqr = to;
+        const int sqr = (src.ep + (color ? North : South));
+        assert(IS_SQUARE(sqr));
+        assert(_board[sqr] != _EMPTY);
+        assert(_board[sqr]->type == ((!color)|Pawn));
+        RemovePiece(((!color)|Pawn), sqr);
+        _board[to] = moved;
+        moved->sqr = to;
         _material[!color] -= PawnValue;
-        if (_atkd[src.ep + (color ? North : South)]) {
-          ExtendAttacks(src.ep + (color ? North : South));
+        if (_atkd[sqr]) {
+          ExtendAttacks(sqr);
         }
         dest.pawnKey = (src.pawnKey ^ _HASH[pc][from] ^ _HASH[pc][to] ^
-                        _HASH[(!color)|Pawn][src.ep + (color ? North : South)]);
+                        _HASH[(!color)|Pawn][sqr]);
         dest.pieceKey = src.pieceKey;
       }
     }
@@ -904,16 +925,17 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   case BishopMove:
   case RookMove:
   case QueenMove:
+  case KingMove:
     assert(pc == (color|move.Type()));
-    assert(cap ? (_offset[to] && (_pc[_offset[to]].type == cap)) : !_offset[to]);
+    assert(cap ? (_board[to]->type == cap) : (_board[to] == _EMPTY));
     assert(!promo);
-    _offset[from] = 0;
+    _board[from] = _EMPTY;
     dest.state = ((src.state ^ 1) & _TOUCH[from] & _TOUCH[to]);
     dest.ep = 0;
     dest.rcount = (cap ? 0 : (src.rcount + 1));
     dest.mcount = (src.mcount + 1);
     if (cap >= Knight) {
-      RemovePiece(cap, _offset[to]);
+      RemovePiece(cap, to);
       _material[!color] -= ValueOf(cap);
       dest.pawnKey = src.pawnKey;
       dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to] ^
@@ -921,7 +943,7 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
     }
     else if (cap) {
       assert(cap == ((!color)|Pawn));
-      RemovePiece(((!color)|Pawn), _offset[to]);
+      RemovePiece(((!color)|Pawn), to);
       _material[!color] -= PawnValue;
       dest.pawnKey = (src.pawnKey ^ _HASH[cap][to]);
       dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
@@ -930,58 +952,29 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
       dest.pawnKey = src.pawnKey;
       dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
     }
-    _offset[to] = moved;
-    _pc[moved].sqr = to;
-    break;
-  case KingMove:
-    assert(pc == (color|King));
-    assert(moved == (color ? BlackKingOffset : WhiteKingOffset));
-    assert(cap ? (_offset[to] && (_pc[_offset[to]].type == cap)) : !_offset[to]);
-    assert(!promo);
-    _offset[from] = 0;
-    dest.state = ((src.state ^ 1) & _TOUCH[from] & _TOUCH[to]);
-    dest.ep = 0;
-    dest.rcount = (cap ? 0 : (src.rcount + 1));
-    dest.mcount = (src.mcount + 1);
-    if (cap >= Knight) {
-      RemovePiece(cap, _offset[to]);
-      dest.pawnKey = src.pawnKey;
-      dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to] ^
-                       _HASH[cap][to]);
-    }
-    else if (cap) {
-      assert(cap == ((!color)|Pawn));
-      RemovePiece(((!color)|Pawn), _offset[to]);
-      dest.pawnKey = (src.pawnKey ^ _HASH[cap][to]);
-      dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
-    }
-    else {
-      dest.pawnKey = src.pawnKey;
-      dest.pieceKey = (src.pieceKey ^ _HASH[pc][from] ^ _HASH[pc][to]);
-    }
-    _offset[to] = moved;
-    _pc[moved].sqr = to;
+    _board[to] = moved;
+    moved->sqr = to;
     break;
   case CastleShort:
+    assert(moved == (color ? _BLACK_KING : _WHITE_KING));
     assert(from == (color ? E8 : E1));
     assert(to == (color ? G8 : G1));
     assert(!cap);
     assert(!promo);
-    assert(_offset[from] == (color ? BlackKingOffset : WhiteKingOffset));
-    assert(_offset[color ? H8 : H1]);
-    assert(_pc[_offset[color ? H8 : H1]].type == (color|Rook));
-    assert(!_offset[color ? F8 : F1]);
-    assert(!_offset[color ? G8 : G1]);
+    assert(_board[color ? H8 : H1] != _EMPTY);
+    assert(_board[color ? H8 : H1]->type == (color|Rook));
+    assert(_board[color ? F8 : F1] == _EMPTY);
+    assert(_board[color ? G8 : G1] == _EMPTY);
     assert(!AttackedBy<!color>(color ? E8 : E1));
     assert(!AttackedBy<!color>(color ? F8 : F1));
     assert(!AttackedBy<!color>(color ? G8 : G1));
     ClearAttacksFrom((color|Rook), (color ? H8 : H1));
-    _offset[color ? E8 : E1] = 0;
-    _offset[color ? G8 : G1] = moved;
-    _offset[color ? F8 : F1] = _offset[color ? H8 : H1];
-    _offset[color ? H8 : H1] = 0;
-    _pc[moved].sqr = to;
-    _pc[_offset[color ? F8 : F1]].sqr = (color ? F8 : F1);
+    _board[color ? E8 : E1] = _EMPTY;
+    _board[color ? G8 : G1] = moved;
+    _board[color ? F8 : F1] = _board[color ? H8 : H1];
+    _board[color ? H8 : H1] = _EMPTY;
+    moved->sqr = to;
+    _board[color ? F8 : F1]->sqr = (color ? F8 : F1);
     AddAttacksFrom((color|Rook), (color ? F8 : F1));
     dest.state = ((src.state ^ 1) & ~(color ? BlackCastle : WhiteCastle));
     dest.ep = 0;
@@ -995,26 +988,26 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
                      _HASH[color|King][color ? G8 : G1]);
     break;
   case CastleLong:
+    assert(moved == (color ? _BLACK_KING : _WHITE_KING));
     assert(from == (color ? E8 : E1));
     assert(to == (color ? C8 : C1));
     assert(!cap);
     assert(!promo);
-    assert(_offset[from] == (color ? BlackKingOffset : WhiteKingOffset));
-    assert(_offset[color ? A8 : A1]);
-    assert(_pc[_offset[color ? A8 : A1]].type == (color|Rook));
-    assert(!_offset[color ? B8 : B1]);
-    assert(!_offset[color ? C8 : C1]);
-    assert(!_offset[color ? D8 : D1]);
+    assert(_board[color ? A8 : A1] != _EMPTY);
+    assert(_board[color ? A8 : A1]->type == (color|Rook));
+    assert(_board[color ? B8 : B1] == _EMPTY);
+    assert(_board[color ? C8 : C1] == _EMPTY);
+    assert(_board[color ? D8 : D1] == _EMPTY);
     assert(!AttackedBy<!color>(color ? C8 : C1));
     assert(!AttackedBy<!color>(color ? D8 : D1));
     assert(!AttackedBy<!color>(color ? E8 : E1));
     ClearAttacksFrom((color|Rook), (color ? A8 : A1));
-    _offset[color ? D8 : D1] = _offset[color ? A8 : A1];
-    _offset[color ? A8 : A1] = 0;
-    _offset[color ? C8 : C1] = moved;
-    _offset[color ? E8 : E1] = 0;
-    _pc[moved].sqr = to;
-    _pc[_offset[color ? D8 : D1]].sqr = (color ? D8 : D1);
+    _board[color ? D8 : D1] = _board[color ? A8 : A1];
+    _board[color ? A8 : A1] = _EMPTY;
+    _board[color ? C8 : C1] = moved;
+    _board[color ? E8 : E1] = _EMPTY;
+    moved->sqr = to;
+    _board[color ? D8 : D1]->sqr = (color ? D8 : D1);
     AddAttacksFrom((color|Rook), (color ? D8 : D1));
     dest.state = ((src.state ^ 1) & ~(color ? BlackCastle : WhiteCastle));
     dest.ep = 0;
@@ -1042,9 +1035,10 @@ void Exec(const Move& move, const Clunk& src, Clunk& dest) {
   if (_atkd[from]) {
     ExtendAttacks(from);
   }
-  if (_offset[to] >= SliderOffset) {
-    assert(IS_SLIDER(_pc[_offset[to]].type));
-    AddAttacksFrom(_pc[_offset[to]].type, to);
+  if (_board[to] >= _FIRST_SLIDER) {
+    assert(IS_SLIDER(_board[to]->type));
+    assert(_board[to]->sqr == to);
+    AddAttacksFrom(_board[to]->type, to);
   }
 
   assert(VerifyAttacks(true));
@@ -1057,6 +1051,7 @@ void Undo(const Move& move, const Clunk& src) {
   assert(move.IsValid());
   assert(IS_SQUARE(move.From()));
   assert(IS_SQUARE(move.To()));
+  assert(_board[move.From()] == _EMPTY);
   assert(!move.Cap() || IS_CAP(move.Cap()));
   assert(!move.Cap() || COLOR(move.Cap()) != color);
   assert(!move.Promo() || IS_PROMO(move.Promo()));
@@ -1066,136 +1061,150 @@ void Undo(const Move& move, const Clunk& src) {
   const int to    = move.To();
   const int cap   = move.Cap();
   const int promo = move.Promo();
-  const int moved = _offset[to];
-  const int pc    = _pc[moved].type;
 
-  assert(!_offset[from]);
-  assert(moved);
-  assert(_pc[moved].sqr == to);
-  assert(pc);
-  assert(COLOR(pc) == color);
-
-  if (IS_SLIDER(pc)) {
-    ClearAttacksFrom(pc, to);
-  }
-
-  if (promo) {
-    assert(_pc[moved].type == promo);
-    RemovePiece(promo, moved);
-    _material[color] += (PawnValue - ValueOf(promo));
-  }
+  Piece* moved = _board[to];
+  assert(moved && (moved != _EMPTY));
+  assert(moved->type);
+  assert(COLOR(moved->type) == color);
+  assert(moved->sqr == to);
 
   switch (move.Type()) {
-  case PawnMove:
-  case PawnLung:
-    assert(!cap);
-    _offset[to] = 0;
-    _offset[from] = (promo ? AddPiece((color|Pawn), from) : moved);
-    _pc[_offset[from]].sqr = from;
-    break;
   case PawnCap:
-    if (cap) {
-      _offset[to] = AddPiece(cap, to);
-      _offset[from] = (promo ? AddPiece((color|Pawn), from) : moved);
-      _pc[_offset[from]].sqr = from;
+    if (promo) {
+      assert(moved->type == promo);
+      assert(cap);
+      if (promo >= Bishop) {
+        ClearAttacksFrom(promo, to);
+      }
+      RemovePiece(promo, to);
+      AddPiece(cap, to);
+      AddPiece((color|Pawn), from);
+      _material[color] += (PawnValue - ValueOf(promo));
+      _material[!color] += ValueOf(cap);
+      if (_atkd[from]) {
+        TruncateAttacks(from, to);
+      }
+      if (cap >= Bishop) {
+        AddAttacksFrom(cap, to);
+      }
+    }
+    else if (cap) {
+      _board[from] = moved;
+      moved->sqr = from;
+      AddPiece(cap, to);
+      _material[!color] += ValueOf(cap);
+      if (_atkd[from]) {
+        TruncateAttacks(from, to);
+      }
+      if (cap >= Bishop) {
+        AddAttacksFrom(cap, to);
+      }
     }
     else {
-      assert(pc == (color|Pawn));
+      assert(moved->type == (color|Pawn));
       assert(src.ep && (to == src.ep));
       const int sqr = (src.ep + (color ? North : South));
-      assert(!_offset[sqr]);
+      assert(_board[sqr] == _EMPTY);
       if (_atkd[sqr]) {
         TruncateAttacks(sqr, -1);
       }
-      _offset[to] = 0;
-      _offset[sqr] = AddPiece(((!color)|Pawn), sqr);
-      _offset[from] = moved;
-      _pc[moved].sqr = from;
+      AddPiece(((!color)|Pawn), sqr);
+      _board[to] = _EMPTY;
+      _board[from] = moved;
+      moved->sqr = from;
       _material[!color] += PawnValue;
+      if (_atkd[from]) {
+        TruncateAttacks(from, to);
+      }
+      if (_atkd[to]) {
+        ExtendAttacks(to);
+      }
+      if (_atkd[sqr]) {
+        TruncateAttacks(sqr, from);
+      }
     }
     break;
-  case KnightMove:
-  case BishopMove:
-  case RookMove:
-  case QueenMove:
-  case KingMove:
-    assert(pc == (color|move.Type()));
-    assert(!promo);
-    _offset[to] = (cap ? AddPiece(cap, to) : 0);
-    _offset[from] = moved;
-    _pc[moved].sqr = from;
-    break;
   case CastleShort:
+    assert(moved == (color ? _BLACK_KING : _WHITE_KING));
     assert(from == (color ? E8 : E1));
     assert(to == (color ? G8 : G1));
-    assert(pc == (color|King));
     assert(!cap);
     assert(!promo);
-    assert(!_offset[color ? E8 : E1]);
-    assert(!_offset[color ? H8 : H1]);
-    assert(_offset[color ? F8 : F1]);
-    assert(_offset[color ? G8 : G1]);
-    assert(_pc[_offset[color ? F8 : F1]].type == (color|Rook));
+    assert(_board[color ? E8 : E1] == _EMPTY);
+    assert(_board[color ? H8 : H1] == _EMPTY);
+    assert(_board[color ? F8 : F1] != _EMPTY);
+    assert(_board[color ? G8 : G1] != _EMPTY);
+    assert(_board[color ? F8 : F1]->type == (color|Rook));
     ClearAttacksFrom((color|Rook), (color ? F8 : F1));
-    _offset[color ? E8 : E1] = moved;
-    _offset[color ? G8 : G1] = 0;
-    _offset[color ? H8 : H1] = _offset[color ? F8 : F1];
-    _offset[color ? F8 : F1] = 0;
-    _pc[moved].sqr = from;
-    _pc[_offset[color ? H8 : H1]].sqr = (color ? H8 : H1);
+    _board[color ? E8 : E1] = moved;
+    _board[color ? G8 : G1] = _EMPTY;
+    _board[color ? H8 : H1] = _board[color ? F8 : F1];
+    _board[color ? F8 : F1] = _EMPTY;
+    moved->sqr = from;
+    _board[color ? H8 : H1]->sqr = (color ? H8 : H1);
+    if (_atkd[from]) {
+      TruncateAttacks(from, to);
+    }
     AddAttacksFrom((color|Rook), (color ? H8 : H1));
     break;
   case CastleLong:
+    assert(moved == (color ? _BLACK_KING : _WHITE_KING));
     assert(from == (color ? E8 : E1));
     assert(to == (color ? C8 : C1));
-    assert(pc == (color|King));
     assert(!cap);
     assert(!promo);
-    assert(!_offset[color ? E8 : E1]);
-    assert(!_offset[color ? A8 : A1]);
-    assert(!_offset[color ? B8 : B1]);
-    assert(_offset[color ? C8 : C1]);
-    assert(_offset[color ? D8 : D1]);
-    assert(_pc[_offset[color ? D8 : D1]].type == (color|Rook));
+    assert(_board[color ? E8 : E1] == _EMPTY);
+    assert(_board[color ? A8 : A1] == _EMPTY);
+    assert(_board[color ? B8 : B1] == _EMPTY);
+    assert(_board[color ? C8 : C1] != _EMPTY);
+    assert(_board[color ? D8 : D1] != _EMPTY);
+    assert(_board[color ? D8 : D1]->type == (color|Rook));
     ClearAttacksFrom((color|Rook), (color ? D8 : D1));
-    _offset[color ? A8 : A1] = _offset[color ? D8 : D1];
-    _offset[color ? D8 : D1] = 0;
-    _offset[color ? E8 : E1] = moved;
-    _offset[color ? C8 : C1] = 0;
-    _pc[moved].sqr = from;
-    _pc[_offset[color ? A8 : A1]].sqr = (color ? A8 : A1);
+    _board[color ? A8 : A1] = _board[color ? D8 : D1];
+    _board[color ? D8 : D1] = _EMPTY;
+    _board[color ? E8 : E1] = moved;
+    _board[color ? C8 : C1] = _EMPTY;
+    moved->sqr = from;
+    _board[color ? A8 : A1]->sqr = (color ? A8 : A1);
+    if (_atkd[from]) {
+      TruncateAttacks(from, to);
+    }
     AddAttacksFrom((color|Rook), (color ? A8 : A1));
     break;
   default:
-    assert(false);
-  }
-
-  if (_atkd[from]) {
-    TruncateAttacks(from, to);
-  }
-
-  if (cap >= Knight) {
-    _material[!color] += ValueOf(cap);
+    if (moved >= _FIRST_SLIDER) {
+      ClearAttacksFrom(moved->type, to);
+    }
+    if (promo) {
+      assert(move.Type() == PawnMove);
+      assert(moved->type == promo);
+      RemovePiece(promo, to);
+      AddPiece((color|Pawn), from);
+      _material[color] += (PawnValue - ValueOf(promo));
+    }
+    else {
+      _board[from] = moved;
+      moved->sqr = from;
+    }
+    if (cap) {
+      AddPiece(cap, to);
+      _material[!color] += ValueOf(cap);
+    }
+    else {
+      _board[to] = _EMPTY;
+    }
+    if (_atkd[from]) {
+      TruncateAttacks(from, to);
+    }
     if (cap >= Bishop) {
       AddAttacksFrom(cap, to);
     }
-  }
-  else if (cap) {
-    assert(cap == ((!color)|Pawn));
-    _material[!color] += PawnValue;
-  }
-  else {
-    if (_atkd[to]) {
+    else if (!cap && _atkd[to]) {
       ExtendAttacks(to);
     }
-    if ((move.Type() == PawnCap) && _atkd[src.ep + (color ? North : South)]) {
-      TruncateAttacks(src.ep + (color ? North : South), from);
+    if (_board[from] >= _FIRST_SLIDER) {
+      AddAttacksFrom(_board[from]->type, from);
     }
-  }
-
-  if (_offset[from] >= SliderOffset) {
-    assert(IS_SLIDER(_pc[_offset[from]].type));
-    AddAttacksFrom(_pc[_offset[from]].type, from);
   }
 
   assert(VerifyAttacks(true));
@@ -1212,7 +1221,8 @@ void AddMove(Clunk& node, const Color color, const MoveType type,
   assert(from != to);
   assert(node.moveCount >= 0);
   assert((node.moveCount + 1) < MaxMoves);
-  if (_pcount[!color] > _pcount[(!color)|Knight]) {
+  if (_pcount[!color]) {
+    assert(_pcount[!color] > 0);
     if (_pinDir[from] && (_pinDir[from] != abs(Direction(from, to)))) {
       return;
     }
@@ -1224,67 +1234,68 @@ void AddMove(Clunk& node, const Color color, const MoveType type,
 template<Color color>
 bool EpPinned(const int from, const int cap) {
   assert((2 + color) == (color ? BlackKingOffset : WhiteKingOffset));
-  assert(_pc[2 + color].type == (color|King));
-  assert(IS_SQUARE(_pc[2 + color].sqr));
-  assert(_offset[_pc[2 + color].sqr] == (2 + color));
+  assert((_piece + 2 + color) == (color ? _BLACK_KING : _WHITE_KING));
+  assert(_piece[2 + color].type == (color|King));
+  assert(IS_SQUARE(_piece[2 + color].sqr));
+  assert(_board[_piece[2 + color].sqr] == (_piece + 2 + color));
   assert(IS_SQUARE(from));
   assert(IS_SQUARE(cap));
   assert(from != cap);
-  assert(from != _pc[2 + color].sqr);
+  assert(from != _piece[2 + color].sqr);
   assert(YC(from) == YC(cap));
   assert(YC(from) == (color ? 3 : 4));
   assert(Distance(from, cap) == 1);
-  assert(_offset[from]);
-  assert(_offset[cap]);
-  assert(_pc[_offset[from]].type == (color|Pawn));
-  assert(_pc[_offset[cap]].type == ((!color)|Pawn));
-  if (!_pcount[!color] || (YC(from) != YC(_pc[2 + color].sqr))) {
+  assert(_board[from] != _EMPTY);
+  assert(_board[cap] != _EMPTY);
+  assert(_board[from]->type == (color|Pawn));
+  assert(_board[cap]->type == ((!color)|Pawn));
+  if (!_pcount[!color] || (YC(from) != YC(_piece[2 + color].sqr))) {
     return false;
   }
   int left = std::min<int>(from, cap);
   int right = std::max<int>(from, cap);
-  if (_pc[2 + color].sqr < left) {
+  if (_piece[2 + color].sqr < left) {
     right = ((_atkd[right] >> DirShift(West)) & 0xFF);
     assert(!right || (IS_SQUARE(right - 1) && (YC(right - 1) == YC(from))));
-    assert(!right || (_offset[right - 1] >= SliderOffset));
-    if (right-- && (_offset[right] >= RookOffset) &&
-        (COLOR(_pc[_offset[right]].type) != color))
+    assert(!right || (_board[right - 1] >= _FIRST_SLIDER));
+    if (right-- && (_board[right] >= _FIRST_ROOK) &&
+        (COLOR(_board[right]->type) != color))
     {
-      assert(_pc[_offset[right]].type >= Rook);
-      assert(_pc[_offset[right]].type < King);
-      assert(_pc[_offset[right]].sqr == right);
-      while (--left > _pc[2 + color].sqr) {
+      assert(_board[right]->type >= Rook);
+      assert(_board[right]->type < King);
+      assert(_board[right]->sqr == right);
+      while (--left > _piece[2 + color].sqr) {
         assert(IS_SQUARE(left));
         assert(Direction(right, left) == West);
-        if (_offset[left]) {
-          assert(_offset[left] != (2 + color));
+        if (_board[left] != _EMPTY) {
+          assert(left != _piece[2 + color].sqr);
           return false;
         }
       }
-      assert(left == _pc[2 + color].sqr);
+      assert(left == _piece[2 + color].sqr);
       return true;
     }
   }
   else {
-    assert(_pc[2 + color].sqr > right);
+    assert(_piece[2 + color].sqr > right);
     left = ((_atkd[left] >> DirShift(East)) & 0xFF);
     assert(!left || (IS_SQUARE(left - 1) && (YC(left - 1) == YC(from))));
-    assert(!left || (_offset[left - 1] >= SliderOffset));
-    if (left-- && (_offset[left] >= RookOffset) &&
-        (COLOR(_pc[_offset[left]].type) != color))
+    assert(!left || (_board[left - 1] >= _FIRST_ROOK));
+    if (left-- && (_board[left] >= _FIRST_ROOK) &&
+        (COLOR(_board[left]->type) != color))
     {
-      assert(_pc[_offset[left]].type >= Rook);
-      assert(_pc[_offset[left]].type < King);
-      assert(_pc[_offset[left]].sqr == left);
-      while (++right < _pc[2 + color].sqr) {
+      assert(_board[left]->type >= Rook);
+      assert(_board[left]->type < King);
+      assert(_board[left]->sqr == left);
+      while (++right < _piece[2 + color].sqr) {
         assert(IS_SQUARE(right));
         assert(Direction(left, right) == East);
-        if (_offset[right]) {
-          assert(_offset[right] != (2 + color));
+        if (_board[right] != _EMPTY) {
+          assert(right != _piece[2 + color].sqr);
           return false;
         }
       }
-      assert(right == _pc[2 + color].sqr);
+      assert(right == _piece[2 + color].sqr);
       return true;
     }
   }
@@ -1295,33 +1306,35 @@ bool EpPinned(const int from, const int cap) {
 template<Color color>
 int GetCheckEvasions(Clunk& node) {
   assert((2 + color) == (color ? BlackKingOffset : WhiteKingOffset));
-  assert(_pc[2 + color].type == (color|King));
-  assert(IS_SQUARE(_pc[2 + color].sqr));
-  assert(_offset[_pc[2 + color].sqr] == (2 + color));
-  int from = _pc[2 + color].sqr;
+  assert((_piece + 2 + color) == (color ? _BLACK_KING : _WHITE_KING));
+  assert(_piece[2 + color].type == (color|King));
+  assert(IS_SQUARE(_piece[2 + color].sqr));
+  assert(_board[_piece[2 + color].sqr] == (_piece + 2 + color));
+  int from = _piece[2 + color].sqr;
   int attackers = 0;
   int squareCount = 0;
   int squares[40];
   int xrayCount = 0;
   int xray[4] = {-1,-1,-1,-1};
 
-  if (_pcount[!color] > _pcount[(!color)|Knight]) {
+  if (_pcount[!color]) {
+    assert(_pcount[!color] > 0);
     memset(_pinDir, 0, sizeof(_pinDir));
   }
 
-  for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>=8) {
-    assert(mvs & 0xFF);
-    const int to = ((mvs & 0xFF) - 1);
-    assert(IS_SQUARE(to));
-    assert(to != from);
-    if ((_offset[to] >= (color ? KnightOffset : BlackKnightOffset)) &&
-        (_offset[to] < (color ? BlackKnightOffset : BishopOffset)))
-    {
-      assert(_pc[_offset[to]].type == ((!color)|Knight));
-      assert(_pc[_offset[to]].sqr == to);
-      attackers++;
-      assert(squareCount < 40);
-      squares[squareCount++] = to;
+  if (_pcount[(!color)|Knight]) {
+    assert(_pcount[(!color)|Knight] > 0);
+    for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>=8) {
+      assert(mvs & 0xFF);
+      const int to = ((mvs & 0xFF) - 1);
+      assert(IS_SQUARE(to));
+      assert(to != from);
+      if (_board[to]->type == ((!color)|Knight)) {
+        assert(_board[to]->sqr == to);
+        attackers++;
+        assert(squareCount < 40);
+        squares[squareCount++] = to;
+      }
     }
   }
 
@@ -1338,34 +1351,32 @@ int GetCheckEvasions(Clunk& node) {
       assert(Direction(from, to) == dir);
       assert(newSquareCount < 40);
       squares[newSquareCount++] = to;
-      if (_offset[to]) {
-        firstPiece = _pc[_offset[to]].type;
-        assert(firstPiece > 0);
-        break;
-      }
-      if (to == end) {
-        assert(!firstPiece);
+      if ((to == end) || (_board[to] != _EMPTY)) {
+        firstPiece = _board[to]->type;
+        assert(_EMPTY->type == 0);
         break;
       }
       to += dir;
     }
 
     assert(newSquareCount > squareCount);
+    assert(IS_SQUARE(to));
     if (!firstPiece) {
+      assert(_board[to] == _EMPTY);
       continue;
     }
 
-    assert(IS_SQUARE(to));
-    assert(firstPiece == _pc[_offset[to]].type);
+    assert(_board[to] != _EMPTY);
+    assert(firstPiece == _board[to]->type);
     if (COLOR(firstPiece) == color) {
       if (_atkd[to]) {
         const int afrom = ((_atkd[to] >> DirShift(-dir)) & 0xFF);
         if (afrom) {
           assert(IS_SQUARE(afrom - 1));
-          assert(_offset[afrom - 1] >= SliderOffset);
-          assert(IS_SLIDER(_pc[_offset[afrom - 1]].type));
-          assert(_pc[_offset[afrom - 1]].sqr == (afrom - 1));
-          if (COLOR(_pc[_offset[afrom - 1]].type) != color) {
+          assert(_board[afrom - 1] >= _FIRST_SLIDER);
+          assert(IS_SLIDER(_board[afrom - 1]->type));
+          assert(_board[afrom - 1]->sqr == (afrom - 1));
+          if (COLOR(_board[afrom - 1]->type) != color) {
             _pinDir[to] = abs(dir);
           }
         }
@@ -1436,43 +1447,44 @@ int GetCheckEvasions(Clunk& node) {
     return 0;
   }
 
-  assert(!_pc[0].type);
+  assert(!_piece[0].type);
   if (attackers == 1) {
     // get non-king moves that block or capture the piece giving check
     for (int z = 0; z < squareCount; ++z) {
       const int to = squares[z];
       assert(IS_SQUARE(to));
-      const int cap = _pc[_offset[to]].type;
-      assert(!cap == !_offset[to]);
-      assert(!cap || (_pc[_offset[to]].sqr == to));
+      const int cap = _board[to]->type;
+      assert(cap || (_board[to] == _EMPTY));
       if ((cap == ((!color)|Pawn)) &&
           (node.ep == (to + (color ? South : North))))
       {
         if (XC(node.ep) > 0) {
           from = (node.ep + (color ? NorthWest : SouthWest));
-          if ((_pc[_offset[from]].type == (color|Pawn)) &&
-              !EpPinned<color>(from, to)) {
+          if ((_board[from]->type == (color|Pawn)) &&
+              !EpPinned<color>(from, to))
+          {
             AddMove(node, color, PawnCap, from, node.ep);
           }
         }
         if (XC(node.ep) < 7) {
           from = (node.ep + (color ? NorthEast : SouthEast));
-          if ((_pc[_offset[from]].type == (color|Pawn)) &&
-              !EpPinned<color>(from, to)) {
+          if ((_board[from]->type == (color|Pawn)) &&
+              !EpPinned<color>(from, to))
+          {
             AddMove(node, color, PawnCap, from, node.ep);
           }
         }
       }
 
       if (_pcount[color|Knight]) {
+        assert(_pcount[color|Knight] > 0);
         for (uint64_t mvs = _knightMoves[to]; mvs; mvs >>= 8) {
           assert(mvs & 0xFF);
           from = ((mvs & 0xFF) - 1);
           assert(IS_SQUARE(from));
           assert(from != to);
-          if ((_offset[from] >= (color ? BlackKnightOffset : KnightOffset)) &&
-              (_offset[from] < (color ? BishopOffset : BlackKnightOffset)))
-          {
+          if (_board[from]->type == (color|Knight)) {
+            assert(_board[from]->sqr == from);
             AddMove(node, color, KnightMove, from, to, cap);
           }
         }
@@ -1486,7 +1498,7 @@ int GetCheckEvasions(Clunk& node) {
         for (from = (to + dir);; from += dir) {
           assert(IS_SQUARE(from));
           assert(Direction(to, from) == dir);
-          switch (_pc[_offset[from]].type) {
+          switch (_board[from]->type) {
           case (color|Pawn):
             if (cap && (color ? (from > to) : (from < to)) &&
                 (Distance(from, to) == 1))
@@ -1509,7 +1521,7 @@ int GetCheckEvasions(Clunk& node) {
             AddMove(node, color, QueenMove, from, to, cap);
             break;
           }
-          if ((from == end) || _offset[from]) {
+          if ((from == end) || (_board[from] != _EMPTY)) {
             break;
           }
         }
@@ -1523,7 +1535,7 @@ int GetCheckEvasions(Clunk& node) {
         for (from = (to + dir);; from += dir) {
           assert(IS_SQUARE(from));
           assert(Direction(to, from) == dir);
-          switch (_pc[_offset[from]].type) {
+          switch (_board[from]->type) {
           case (color|Pawn):
             if (!cap && (dir == (color ? North : South))) {
               if (Distance(from, to) == 1) {
@@ -1551,7 +1563,7 @@ int GetCheckEvasions(Clunk& node) {
             AddMove(node, color, QueenMove, from, to, cap);
             break;
           }
-          if ((from == end) || _offset[from]) {
+          if ((from == end) || (_board[from] != _EMPTY)) {
             break;
           }
         }
@@ -1560,7 +1572,7 @@ int GetCheckEvasions(Clunk& node) {
   }
 
   // get king moves
-  from = _pc[2 + color].sqr;
+  from = _piece[2 + color].sqr;
   for (uint64_t mvs = _queenKing[from + 8]; mvs; mvs >>= 8) {
     assert(mvs & 0xFF);
     const int to = ((mvs & 0xFF) - 1);
@@ -1573,9 +1585,8 @@ int GetCheckEvasions(Clunk& node) {
       continue;
     }
 
-    const int cap = _pc[_offset[to]].type;
-    assert(!cap == !_offset[to]);
-    assert(!cap || (_pc[_offset[to]].sqr == to));
+    const int cap = _board[to]->type;
+    assert(cap || (_board[to] == _EMPTY));
     if (!cap) {
       AddMove(node, color, KingMove, from, to);
     }
@@ -1590,17 +1601,16 @@ int GetCheckEvasions(Clunk& node) {
 template<Color color>
 void GetPawnMoves(Clunk& node, const int from) {
   assert(IS_SQUARE(from));
-  assert(_offset[from]);
-  assert(_pc[_offset[from]].type == (color|Pawn));
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] != _EMPTY);
+  assert(_board[from]->type == (color|Pawn));
+  assert(_board[from]->sqr == from);
   int to;
   for (uint64_t mvs = _pawnCaps[from + (color * 8)]; mvs; mvs >>= 8) {
     assert(mvs & 0xFF);
     to = ((mvs & 0xFF) - 1);
     assert(Distance(from, to) == 1);
-    const int cap = _pc[_offset[to]].type;
-    assert(!cap == !_offset[to]);
-    assert(!cap || (_pc[_offset[to]].sqr == to));
+    const int cap = _board[to]->type;
+    assert(cap || (_board[to] == _EMPTY));
     if (!cap) {
       if (node.ep && (to == node.ep) &&
           !EpPinned<color>(from, (node.ep + (color ? North : South))))
@@ -1622,7 +1632,7 @@ void GetPawnMoves(Clunk& node, const int from) {
   }
   to = (from + (color ? South : North));
   assert(IS_SQUARE(to));
-  if (!_offset[to]) {
+  if (_board[to] == _EMPTY) {
     if (YC(to) == (color ? 0 : 7)) {
       AddMove(node, color, PawnMove, from, to, 0, (color|Queen));
       AddMove(node, color, PawnMove, from, to, 0, (color|Rook));
@@ -1634,7 +1644,7 @@ void GetPawnMoves(Clunk& node, const int from) {
       if (YC(from) == (color ? 6 : 1)) {
         to += (color ? South : North);
         assert(IS_SQUARE(to));
-        if (!_offset[to]) {
+        if (_board[to] == _EMPTY) {
           AddMove(node, color, PawnLung, from, to);
         }
       }
@@ -1645,17 +1655,16 @@ void GetPawnMoves(Clunk& node, const int from) {
 //-----------------------------------------------------------------------------
 void GetKnightMoves(Clunk& node, const Color color, const int from) {
   assert(IS_SQUARE(from));
-  assert(_offset[from]);
-  assert(_pc[_offset[from]].type == (color|Knight));
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] != _EMPTY);
+  assert(_board[from]->type == (color|Knight));
+  assert(_board[from]->sqr == from);
   for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>= 8) {
     assert(mvs & 0xFF);
     const int to = ((mvs & 0xFF) - 1);
     assert(IS_SQUARE(to));
     assert(to != from);
-    const int cap = _pc[_offset[to]].type;
-    assert(!cap == !_offset[to]);
-    assert(!cap || (_pc[_offset[to]].sqr == to));
+    const int cap = _board[to]->type;
+    assert(cap || (_board[to] == _EMPTY));
     if (!cap) {
       AddMove(node, color, KnightMove, from, to);
     }
@@ -1670,9 +1679,9 @@ void GetSliderMoves(Clunk& node, const Color color, const MoveType type,
                     uint64_t mvs, const int from)
 {
   assert(IS_SQUARE(from));
-  assert(_offset[from]);
-  assert(_pc[_offset[from]].type == (color|type));
-  assert(_pc[_offset[from]].sqr == from);
+  assert(_board[from] != _EMPTY);
+  assert(_board[from]->type == (color|type));
+  assert(_board[from]->sqr == from);
   while (mvs) {
     assert(mvs & 0xFF);
     const int end = ((mvs & 0xFF) - 1);
@@ -1681,9 +1690,8 @@ void GetSliderMoves(Clunk& node, const Color color, const MoveType type,
     for (int to = (from + dir);; to += dir) {
       assert(IS_SQUARE(to));
       assert(Direction(from, to) == dir);
-      const int cap = _pc[_offset[to]].type;
-      assert(!cap == !_offset[to]);
-      assert(!cap || (_pc[_offset[to]].sqr == to));
+      const int cap = _board[to]->type;
+      assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
         AddMove(node, color, type, from, to);
       }
@@ -1704,38 +1712,39 @@ void GetSliderMoves(Clunk& node, const Color color, const MoveType type,
 //-----------------------------------------------------------------------------
 template<Color color>
 void GetKingMoves(Clunk& node, const int from) {
-  assert(IS_SQUARE(from));
   assert((2 + color) == (color ? BlackKingOffset : WhiteKingOffset));
-  assert(_pc[2 + color].type == (color|King));
-  assert(_pc[2 + color].sqr == from);
+  assert((_piece + 2 + color) == (color ? _BLACK_KING : _WHITE_KING));
+  assert(_piece[2 + color].type == (color|King));
+  assert(IS_SQUARE(_piece[2 + color].sqr));
+  assert(_board[_piece[2 + color].sqr] == (_piece + 2 + color));
+  assert(IS_SQUARE(from));
   assert(!AttackedBy<!color>(from));
   for (uint64_t mvs = _queenKing[from + 8]; mvs; mvs >>= 8) {
     assert(mvs & 0xFF);
     const int to = ((mvs & 0xFF) - 1);
     assert(Distance(from, to) == 1);
     if (!AttackedBy<!color>(to)) {
-      const int cap = _pc[_offset[to]].type;
-      assert(!cap == !_offset[to]);
-      assert(!cap || (_pc[_offset[to]].sqr == to));
+      const int cap = _board[to]->type;
+      assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
         AddMove(node, color, KingMove, from, to);
         if ((to == (color ? F8 : F1)) &&
             (node.state & (color ? BlackShort : WhiteShort)) &&
-            !_offset[color ? G8 : G1] &&
+            (_board[color ? G8 : G1] == _EMPTY) &&
             !AttackedBy<!color>(color ? G8 : G1))
         {
           assert(from == (color ? E8 : E1));
-          assert(_offset[color ? H8 : H1] == (color|Rook));
+          assert(_board[color ? H8 : H1]->type == (color|Rook));
           AddMove(node, color, CastleShort, from, (color ? G8 : G1));
         }
         else if ((to == (color ? D8 : D1)) &&
                  (node.state & (color ? BlackLong : WhiteLong)) &&
-                 !_offset[color ? C8 : C1] &&
-                 !_offset[color ? B8 : B1] &&
+                 (_board[color ? C8 : C1] == _EMPTY) &&
+                 (_board[color ? B8 : B1] == _EMPTY) &&
                  !AttackedBy<!color>(color ? C8 : C1))
         {
           assert(from == (color ? E8 : E1));
-          assert(_offset[color ? A8 : A1] == (color|Rook));
+          assert(_board[color ? A8 : A1]->type == (color|Rook));
           AddMove(node, color, CastleLong, from, (color ? C8 : C1));
         }
       }
@@ -1749,16 +1758,21 @@ void GetKingMoves(Clunk& node, const int from) {
 //-----------------------------------------------------------------------------
 template<Color color>
 void GenerateMoves(Clunk& node) {
-  assert(_pc[WhiteKingOffset].type == (White|King));
-  assert(_pc[BlackKingOffset].type == (Black|King));
-  assert(IS_SQUARE(_pc[WhiteKingOffset].sqr));
-  assert(IS_SQUARE(_pc[BlackKingOffset].sqr));
-  assert((_pcount[White] >= 0) && (_pcount[White] <= 10));
-  assert((_pcount[Black] >= 0) && (_pcount[Black] <= 10));
-  assert(_pcount[White] == (_pcount[White|Knight] + _pcount[White|Bishop] +
-                            _pcount[White|Rook] + _pcount[White|Queen]));
-  assert(_pcount[Black] == (_pcount[Black|Knight] + _pcount[Black|Bishop] +
-                            _pcount[Black|Rook] + _pcount[Black|Queen]));
+  assert((2 + color) == (color ? BlackKingOffset : WhiteKingOffset));
+  assert((_piece + WhiteKingOffset) == _WHITE_KING);
+  assert((_piece + BlackKingOffset) == _BLACK_KING);
+  assert(_WHITE_KING->type == (White|King));
+  assert(_BLACK_KING->type == (Black|King));
+  assert(IS_SQUARE(_WHITE_KING->sqr));
+  assert(IS_SQUARE(_BLACK_KING->sqr));
+  assert(_board[_WHITE_KING->sqr] == _WHITE_KING);
+  assert(_board[_BLACK_KING->sqr] == _BLACK_KING);
+  assert((_pcount[White] >= 0) && (_pcount[White] <= 13));
+  assert((_pcount[Black] >= 0) && (_pcount[Black] <= 13));
+  assert(_pcount[White] == (_pcount[White|Bishop] + _pcount[White|Rook] +
+                            _pcount[White|Queen]));
+  assert(_pcount[Black] == (_pcount[Black|Bishop] + _pcount[Black|Rook] +
+                            _pcount[Black|Queen]));
   assert((_pcount[White|Pawn] >= 0) && (_pcount[White|Pawn] <= 8));
   assert((_pcount[Black|Pawn] >= 0) && (_pcount[Black|Pawn] <= 8));
   assert((_pcount[White|Knight] >= 0) && (_pcount[White|Knight] <= 10));
@@ -1775,33 +1789,34 @@ void GenerateMoves(Clunk& node) {
     return;
   }
 
+  int from;
   for (int i = 0; i < _pcount[color|Pawn]; ++i) {
-    const int from = _pc[(color ? BlackPawnOffset : PawnOffset) + i].sqr;
+    from = _piece[(color ? BlackPawnOffset : PawnOffset) + i].sqr;
     GetPawnMoves<color>(node, from);
   }
 
   for (int i = 0; i < _pcount[color|Knight]; ++i) {
-    const int from = _pc[(color ? BlackKnightOffset : KnightOffset) + i].sqr;
+    from = _piece[(color ? BlackKnightOffset : KnightOffset) + i].sqr;
     GetKnightMoves(node, color, from);
   }
 
   for (int i = 0; i < _pcount[color|Bishop]; ++i) {
-    const int from = _pc[(color ? BlackBishopOffset : BishopOffset) + i].sqr;
+    from = _piece[(color ? BlackBishopOffset : BishopOffset) + i].sqr;
     GetSliderMoves(node, color, BishopMove, _bishopRook[from], from);
   }
 
   for (int i = 0; i < _pcount[color|Rook]; ++i) {
-    const int from = _pc[(color ? BlackRookOffset : RookOffset) + i].sqr;
+    from = _piece[(color ? BlackRookOffset : RookOffset) + i].sqr;
     GetSliderMoves(node, color, RookMove, _bishopRook[from + 8], from);
   }
 
   for (int i = 0; i < _pcount[color|Queen]; ++i) {
-    const int from = _pc[(color ? BlackQueenOffset : QueenOffset) + i].sqr;
+    from = _piece[(color ? BlackQueenOffset : QueenOffset) + i].sqr;
     GetSliderMoves(node, color, QueenMove, _queenKing[from], from);
   }
 
-  assert((2 + color) == (color ? BlackKingOffset : WhiteKingOffset));
-  GetKingMoves<color>(node, _pc[2 + color].sqr);
+  from = _piece[2 + color].sqr;
+  GetKingMoves<color>(node, from);
 }
 
 //-----------------------------------------------------------------------------
@@ -1907,12 +1922,14 @@ const char* Clunk::MakeMove(const char* str)
     return NULL;
   }
 
-  assert(!_pc[0].type);
   int from  = SQR(TO_X(str[0]), TO_Y(str[1]));
   int to    = SQR(TO_X(str[2]), TO_Y(str[3]));
-  int pc    = _pc[_offset[from]].type;
-  int cap   = _pc[_offset[to]].type;
+  int pc    = _board[from]->type;
+  int cap   = _board[to]->type;
   int promo = 0;
+
+  assert(_EMPTY->type == 0);
+  assert(cap || (_board[to] == _EMPTY));
 
   const Color color = COLOR(state);
   const char* p = (str + 4);
@@ -1976,8 +1993,8 @@ const char* Clunk::SetPosition(const char* fen)
     return NULL;
   }
 
-  memset(_offset, 0, sizeof(_offset));
-  memset(_pc, 0, sizeof(_pc));
+  memset(_board, 0, sizeof(_board));
+  memset(_piece, 0, sizeof(_piece));
   memset(_pcount, 0, sizeof(_pcount));
   memset(_material, 0, sizeof(_material));
   memset(_atkd, 0, sizeof(_atkd));
@@ -2000,18 +2017,27 @@ const char* Clunk::SetPosition(const char* fen)
         return NULL;
       }
       else if (isdigit(*p)) {
-        x += (*p - '1');
+        if (*p == '0') {
+          senjo::Output() << "Invalid empty square count at " << p;
+          return NULL;
+        }
+        _board[SQR(x,y)] = _EMPTY;
+        for (int n = (*p - '1'); n; --n) {
+          ++x;
+          _board[SQR(x,y)] = _EMPTY;
+        }
       }
       else {
         const int sqr = SQR(x,y);
         assert(IS_SQUARE(sqr));
+        _board[sqr] = _EMPTY;
         switch (*p) {
         case 'b':
           if (_pcount[Black|Bishop] >= 10) {
             senjo::Output() << "Too many black bishops";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|Bishop), sqr);
+          AddPiece((Black|Bishop), sqr);
           _material[Black] += BishopValue;
           pieceKey ^= _HASH[Black|Bishop][sqr];
           break;
@@ -2020,24 +2046,24 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many white bishops";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|Bishop), sqr);
+          AddPiece((White|Bishop), sqr);
           _material[White] += BishopValue;
           pieceKey ^= _HASH[White|Bishop][sqr];
           break;
         case 'k':
-          if (_pc[BlackKingOffset].type) {
+          if (_piece[BlackKingOffset].type) {
             senjo::Output() << "Multiple black kings";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|King), sqr);
+          AddPiece((Black|King), sqr);
           pieceKey ^= _HASH[Black|King][sqr];
           break;
         case 'K':
-          if (_pc[WhiteKingOffset].type) {
+          if (_piece[WhiteKingOffset].type) {
             senjo::Output() << "Multiple white kings";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|King), sqr);
+          AddPiece((White|King), sqr);
           pieceKey ^= _HASH[White|King][sqr];
           break;
         case 'n':
@@ -2045,7 +2071,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many black knights";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|Knight), sqr);
+          AddPiece((Black|Knight), sqr);
           _material[Black] += KnightValue;
           pieceKey ^= _HASH[Black|Knight][sqr];
           break;
@@ -2054,7 +2080,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many white knights";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|Knight), sqr);
+          AddPiece((White|Knight), sqr);
           _material[White] += KnightValue;
           pieceKey ^= _HASH[White|Knight][sqr];
           break;
@@ -2063,7 +2089,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many black pawns";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|Pawn), sqr);
+          AddPiece((Black|Pawn), sqr);
           _material[Black] += PawnValue;
           pawnKey ^= _HASH[Black|Pawn][sqr];
           break;
@@ -2072,7 +2098,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many white pawns";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|Pawn), sqr);
+          AddPiece((White|Pawn), sqr);
           _material[White] += PawnValue;
           pawnKey ^= _HASH[White|Pawn][sqr];
           break;
@@ -2081,7 +2107,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many black queens";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|Queen), sqr);
+          AddPiece((Black|Queen), sqr);
           _material[Black] += QueenValue;
           pieceKey ^= _HASH[Black|Queen][sqr];
           break;
@@ -2090,7 +2116,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many white queens";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|Queen), sqr);
+          AddPiece((White|Queen), sqr);
           _material[White] += QueenValue;
           pieceKey ^= _HASH[White|Queen][sqr];
           break;
@@ -2099,7 +2125,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many black rooks";
             return NULL;
           }
-          _offset[sqr] = AddPiece((Black|Rook), sqr);
+          AddPiece((Black|Rook), sqr);
           _material[Black] += RookValue;
           pieceKey ^= _HASH[Black|Rook][sqr];
           break;
@@ -2108,7 +2134,7 @@ const char* Clunk::SetPosition(const char* fen)
             senjo::Output() << "Too many hite rooks";
             return NULL;
           }
-          _offset[sqr] = AddPiece((White|Rook), sqr);
+          AddPiece((White|Rook), sqr);
           _material[White] += RookValue;
           pieceKey ^= _HASH[White|Rook][sqr];
           break;
@@ -2133,25 +2159,39 @@ const char* Clunk::SetPosition(const char* fen)
     }
   }
 
-  if (_pc[WhiteKingOffset].type != (White|King)) {
+  if (_piece[WhiteKingOffset].type != (White|King)) {
     senjo::Output() << "No white king in this position";
     return NULL;
   }
-  if (_pc[BlackKingOffset].type != (Black|King)) {
+  if (_piece[BlackKingOffset].type != (Black|King)) {
     senjo::Output() << "No black king in this position";
     return NULL;
   }
 
-  for (int sqr = A1; sqr <= H8; ++sqr) {
-    if (BAD_SQR(sqr)) {
-      sqr += 7;
-    }
-    else {
-      assert(!_offset[sqr] || (_pc[_offset[sqr]].sqr == sqr));
-      if (_offset[sqr] >= SliderOffset) {
-        AddAttacksFrom(_pc[_offset[sqr]].type, sqr);
-      }
-    }
+  int from;
+  for (int i = 0; i < _pcount[White|Bishop]; ++i) {
+    from = _piece[BishopOffset + i].sqr;
+    AddAttacksFrom((White|Bishop), from);
+  }
+  for (int i = 0; i < _pcount[Black|Bishop]; ++i) {
+    from = _piece[BlackBishopOffset + i].sqr;
+    AddAttacksFrom((Black|Bishop), from);
+  }
+  for (int i = 0; i < _pcount[White|Rook]; ++i) {
+    from = _piece[RookOffset + i].sqr;
+    AddAttacksFrom((White|Rook), from);
+  }
+  for (int i = 0; i < _pcount[Black|Rook]; ++i) {
+    from = _piece[BlackRookOffset + i].sqr;
+    AddAttacksFrom((Black|Rook), from);
+  }
+  for (int i = 0; i < _pcount[White|Queen]; ++i) {
+    from = _piece[QueenOffset + i].sqr;
+    AddAttacksFrom((White|Queen), from);
+  }
+  for (int i = 0; i < _pcount[Black|Queen]; ++i) {
+    from = _piece[BlackQueenOffset + i].sqr;
+    AddAttacksFrom((Black|Queen), from);
   }
   assert(VerifyAttacks(true));
 
@@ -2160,14 +2200,14 @@ const char* Clunk::SetPosition(const char* fen)
   switch (*p) {
   case 'b':
     state |= Black;
-    if (AttackedBy<Black>(_pc[WhiteKingOffset].sqr)) {
+    if (AttackedBy<Black>(_piece[WhiteKingOffset].sqr)) {
       senjo::Output() << "The king can be captured in this position";
       return NULL;
     }
     break;
   case 'w':
     state |= White;
-    if (AttackedBy<White>(_pc[BlackKingOffset].sqr)) {
+    if (AttackedBy<White>(_piece[BlackKingOffset].sqr)) {
       senjo::Output() << "The king can be captured in this position";
       return NULL;
     }
@@ -2202,9 +2242,11 @@ const char* Clunk::SetPosition(const char* fen)
     const int x = TO_X(*p++);
     const int y = TO_Y(*p++);
     ep = SQR(x, y);
+    const int sqr = (ep + (COLOR(state) ? North : South));
     if ((y != (COLOR(state) ? 2 : 5)) ||
-        _offset[ep] || !_offset[ep + (COLOR(state) ? North : South)] ||
-        (_pc[_offset[ep + (COLOR(state) ? North : South)]].type != ((!COLOR(state))|Pawn)))
+        (_board[ep] != _EMPTY) ||
+        (_board[sqr] == _EMPTY) ||
+        (_board[sqr]->type != ((!COLOR(state))|Pawn)))
     {
       senjo::Output() << "Invalid en passant square: "
                       << senjo::Square(ep).ToString();
@@ -2283,8 +2325,7 @@ std::string Clunk::GetFEN() const
   // piece positions
   for (int y = 7; y >= 0; --y) {
     for (int x = 0; x < 8; ++x) {
-      const int sqr = SQR(x,y);
-      const int type = _pc[_offset[sqr]].type;
+      const int type = _board[SQR(x,y)]->type;
       if (type && empty) {
         *p++ = ('0' + empty);
         empty = 0;
@@ -2377,9 +2418,7 @@ void Clunk::PrintBoard() const
   out << '\n';
   for (int y = 7; y >= 0; --y) {
     for (int x = 0; x < 8; ++x) {
-      const int sqr = SQR(x,y);
-      const int type = _pc[_offset[sqr]].type;
-      switch (type) {
+      switch (_board[SQR(x,y)]->type) {
       case (White|Pawn):   out << " P"; break;
       case (White|Knight): out << " N"; break;
       case (White|Bishop): out << " B"; break;

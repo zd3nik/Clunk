@@ -109,7 +109,6 @@ enum {
   BlackPawnOffset   = 12,
   KnightOffset      = 20,
   BlackKnightOffset = 30,
-  SliderOffset      = 40,
   BishopOffset      = 40,
   BlackBishopOffset = 50,
   RookOffset        = 60,
