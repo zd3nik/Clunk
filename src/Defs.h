@@ -20,17 +20,17 @@ namespace clunk
 #define IS_CAP(x)     (((x) >= (White|Pawn)) & ((x) <= (Black|Queen)))
 #define IS_PROMO(x)   (((x) >= (White|Knight)) & ((x) <= (Black|Queen)))
 #define IS_SLIDER(x)  (((x) >= (White|Bishop)) & (((x) <= (Black|Queen))))
-#define IS_MTYPE(x)   (((x) >= PawnMove) && ((x) <= CastleLong))
+#define IS_MTYPE(x)   (((x) >= PawnMove) & ((x) <= CastleLong))
 #define XC(x)         ((x) & 0xF)
 #define YC(x)         ((x) / 16)
-#define IS_DIR(x)     (IS_DIAG(x) || IS_CROSS(x))
-#define IS_DIAG(x)    (((x) == SouthWest) || \
-                       ((x) == SouthEast) || \
-                       ((x) == NorthWest) || \
+#define IS_DIR(x)     (IS_DIAG(x) | IS_CROSS(x))
+#define IS_DIAG(x)    (((x) == SouthWest) | \
+                       ((x) == SouthEast) | \
+                       ((x) == NorthWest) | \
                        ((x) == NorthEast))
-#define IS_CROSS(x)   (((x) == South) || \
-                       ((x) == West) || \
-                       ((x) == East) || \
+#define IS_CROSS(x)   (((x) == South) | \
+                       ((x) == West) | \
+                       ((x) == East) | \
                        ((x) == North))
 
 } // namespace clunk

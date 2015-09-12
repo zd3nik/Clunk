@@ -37,6 +37,8 @@ public:
   void PonderHit();
   void PrintBoard() const;
   void Quit();
+  void ResetStatsTotals();
+  void ShowStatsTotals() const;
   void Stop(const StopReason);
   void GetStats(int* depth,
                 int* seldepth = NULL,

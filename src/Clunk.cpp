@@ -80,26 +80,34 @@ int                _stop = 0;
 int                _depth = 0;
 int                _seldepth = 0;
 int                _movenum = 0;
+int                _drawScore[2] = {0};
 uint64_t           _execs = 0;
 uint64_t           _nodes = 0;
 uint64_t           _qnodes = 0;
-Move               _currmove;
+uint64_t           _startTime = 0;
+char               _hist[0x1000] = {0};
+std::string        _currmove;
 Stats              _stats;
+Stats              _totalStats;
 TranspositionTable _tt;
 
-//----------------------------------------------------------------------------
-void InitSearch() {
-  _stop     = 0;
-  _depth    = 0;
-  _seldepth = 0;
-  _movenum  = 0;
-  _execs    = 0;
-  _nodes    = 0;
-  _qnodes   = 0;
+//-----------------------------------------------------------------------------
+void InitSearch(const Color colorToMove, const uint64_t startTime) {
+  _stop      = 0;
+  _depth     = 0;
+  _seldepth  = 0;
+  _movenum   = 0;
+  _execs     = 0;
+  _nodes     = 0;
+  _qnodes    = 0;
+  _startTime = startTime;
 
-  _currmove.Clear();
+  _currmove.clear();
   _stats.Clear();
   _tt.ResetCounters();
+
+  _drawScore[colorToMove] = 0; // TODO -_contempt;
+  _drawScore[!colorToMove] = 0; // TODO _contempt;
 }
 
 //-----------------------------------------------------------------------------
@@ -183,7 +191,7 @@ inline int Direction(const int from, const int to) {
 
 //-----------------------------------------------------------------------------
 inline int ValueOf(const int pc) {
-  assert(!pc || ((pc >= Pawn) && (pc < King)));
+  assert(!pc || ((pc >= Pawn) & (pc < King)));
   return _VALUE_OF[pc];
 }
 
@@ -256,11 +264,11 @@ inline void AddPiece(const int type, const int sqr) {
     break;
   case (White|King):
     pc = const_cast<Piece*>(_WHITE_KING);
-    assert(!pc->type && !pc->sqr); // only allow this once
+    assert(!pc->type & !pc->sqr); // only allow this once
     break;
   case (Black|King):
     pc = const_cast<Piece*>(_BLACK_KING);
-    assert(!pc->type && !pc->sqr); // only allow this once
+    assert(!pc->type & !pc->sqr); // only allow this once
     break;
   default:
     assert(false);
@@ -274,7 +282,7 @@ inline void AddPiece(const int type, const int sqr) {
 
 //-----------------------------------------------------------------------------
 inline void RemovePiece(const int type, const int sqr) {
-  assert((type >= Pawn) && (type < King));
+  assert((type >= Pawn) & (type < King));
   assert(IS_SQUARE(sqr));
   Piece* pc = _board[sqr];
   assert(pc && (pc != _EMPTY));
@@ -282,66 +290,66 @@ inline void RemovePiece(const int type, const int sqr) {
   assert(pc->sqr == sqr);
   switch (type) {
   case (White|Pawn):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 8));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 8));
     assert(pc >= (_piece + PawnOffset));
     assert(pc < (_piece + PawnOffset + _pcount[type]));
     *pc = _piece[PawnOffset + --_pcount[White|Pawn]];
     break;
   case (Black|Pawn):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 8));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 8));
     assert(pc >= (_piece + BlackPawnOffset));
     assert(pc < (_piece + BlackPawnOffset + _pcount[type]));
     *pc = _piece[BlackPawnOffset + --_pcount[Black|Pawn]];
     break;
   case (White|Knight):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + KnightOffset));
     assert(pc < (_piece + KnightOffset + _pcount[type]));
     *pc = _piece[KnightOffset + --_pcount[White|Knight]];
     break;
   case (Black|Knight):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + BlackKnightOffset));
     assert(pc < (_piece + BlackKnightOffset + _pcount[type]));
     *pc = _piece[BlackKnightOffset + --_pcount[Black|Knight]];
     break;
   case (White|Bishop):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + BishopOffset));
     assert(pc < (_piece + BishopOffset + _pcount[type]));
     *pc = _piece[BishopOffset + --_pcount[White|Bishop]];
     --_pcount[White];
     break;
   case (Black|Bishop):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + BlackBishopOffset));
     assert(pc < (_piece + BlackBishopOffset + _pcount[type]));
     *pc = _piece[BlackBishopOffset + --_pcount[Black|Bishop]];
     --_pcount[Black];
     break;
   case (White|Rook):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + RookOffset));
     assert(pc < (_piece + RookOffset + _pcount[type]));
     *pc = _piece[RookOffset + --_pcount[White|Rook]];
     --_pcount[White];
     break;
   case (Black|Rook):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 10));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 10));
     assert(pc >= (_piece + BlackRookOffset));
     assert(pc < (_piece + BlackRookOffset + _pcount[type]));
     *pc = _piece[BlackRookOffset + --_pcount[Black|Rook]];
     --_pcount[Black];
     break;
   case (White|Queen):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 9));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 9));
     assert(pc >= (_piece + QueenOffset));
     assert(pc < (_piece + QueenOffset + _pcount[type]));
     *pc = _piece[QueenOffset + --_pcount[White|Queen]];
     --_pcount[White];
     break;
   case (Black|Queen):
-    assert((_pcount[type] > 0) && (_pcount[type] <= 9));
+    assert((_pcount[type] > 0) & (_pcount[type] <= 9));
     assert(pc >= (_piece + BlackQueenOffset));
     assert(pc < (_piece + BlackQueenOffset + _pcount[type]));
     *pc = _piece[BlackQueenOffset + --_pcount[Black|Queen]];
@@ -849,6 +857,38 @@ const char* NextSpace(const char* p) {
 }
 
 //-----------------------------------------------------------------------------
+inline int RazorDelta(const int depth) {
+  const int x = (64 * depth);
+  return (500 + (x * (x / 128)));
+}
+
+//-----------------------------------------------------------------------------
+inline int FutilityDelta(const int depth) {
+  const int x = (200 * depth);
+  return std::max<int>(x, (x * (x / 256)));
+}
+
+//-----------------------------------------------------------------------------
+inline void IncHistory(const Move& move, const bool check, const int depth) {
+  assert(move.IsValid());
+  assert(depth >= 0);
+  if (!check) {
+    const int idx = move.HistoryIndex();
+    const int val = (_hist[idx] + depth + 2);
+    _hist[idx] = static_cast<char>(std::min<int>(val, 40));
+  }
+}
+
+//-----------------------------------------------------------------------------
+inline void DecHistory(const Move& move, const bool check) {
+  if (!check) {
+    const int idx = move.HistoryIndex();
+    const int val = (_hist[idx] - 1);
+    _hist[idx] = static_cast<char>(std::max<int>(val, -2));
+  }
+}
+
+//-----------------------------------------------------------------------------
 struct Node
 {
   //---------------------------------------------------------------------------
@@ -876,6 +916,123 @@ struct Node
   int moveIndex;
   int moveCount;
   Move moves[MaxMoves];
+
+  //---------------------------------------------------------------------------
+  // updated during search
+  //---------------------------------------------------------------------------
+  bool pruneOK;
+  int standPat;
+  int depthChange;
+  int pvCount;
+  Move lastMove;
+  Move killer[2];
+  Move pv[MaxPlies];
+
+  //---------------------------------------------------------------------------
+  void PrintBoard() const {
+    senjo::Output out(senjo::Output::NoPrefix);
+    out << '\n';
+    for (int y = 7; y >= 0; --y) {
+      for (int x = 0; x < 8; ++x) {
+        switch (_board[SQR(x,y)]->type) {
+        case (White|Pawn):   out << " P"; break;
+        case (White|Knight): out << " N"; break;
+        case (White|Bishop): out << " B"; break;
+        case (White|Rook):   out << " R"; break;
+        case (White|Queen):  out << " Q"; break;
+        case (White|King):   out << " K"; break;
+        case (Black|Pawn):   out << " p"; break;
+        case (Black|Knight): out << " n"; break;
+        case (Black|Bishop): out << " b"; break;
+        case (Black|Rook):   out << " r"; break;
+        case (Black|Queen):  out << " q"; break;
+        case (Black|King):   out << " k"; break;
+        default:
+          out << (((x ^ y) & 1) ? " -" : "  ");
+        }
+      }
+      switch (y) {
+      case 7:
+        out << (COLOR(state) ? "  Black to move" : "  White to move");
+        break;
+      case 6:
+        out << "  Castling Rights   : ";
+        if (state & WhiteShort) out << 'K';
+        if (state & WhiteLong)  out << 'Q';
+        if (state & BlackShort) out << 'k';
+        if (state & BlackLong)  out << 'q';
+        break;
+      case 5:
+        if (ep != None) {
+          out << "  En Passant Square : " << senjo::Square(ep).ToString();
+        }
+        break;
+      }
+      out << '\n';
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  std::string GetFEN() const {
+    char fen[256] = {0};
+    char* p = fen;
+    int empty = 0;
+    for (int y = 7; y >= 0; --y) {
+      for (int x = 0; x < 8; ++x) {
+        const int type = _board[SQR(x,y)]->type;
+        if ((type != 0) & (empty != 0)) {
+          *p++ = ('0' + empty);
+          empty = 0;
+        }
+        switch (type) {
+        case (White|Pawn):   *p++ = 'P'; break;
+        case (Black|Pawn):   *p++ = 'p'; break;
+        case (White|Knight): *p++ = 'N'; break;
+        case (Black|Knight): *p++ = 'n'; break;
+        case (White|Bishop): *p++ = 'B'; break;
+        case (Black|Bishop): *p++ = 'b'; break;
+        case (White|Rook):   *p++ = 'R'; break;
+        case (Black|Rook):   *p++ = 'r'; break;
+        case (White|Queen):  *p++ = 'Q'; break;
+        case (Black|Queen):  *p++ = 'q'; break;
+        case (White|King):   *p++ = 'K'; break;
+        case (Black|King):   *p++ = 'k'; break;
+        default:
+          empty++;
+        }
+      }
+      if (empty) {
+        *p++ = ('0' + empty);
+        empty = 0;
+      }
+      if (y > 0) {
+        *p++ = '/';
+      }
+    }
+    *p++ = ' ';
+    *p++ = (COLOR(state) ? 'b' : 'w');
+    *p++ = ' ';
+    if (state & CastleMask) {
+      if (state & WhiteShort) *p++ = 'K';
+      if (state & WhiteLong)  *p++ = 'Q';
+      if (state & BlackShort) *p++ = 'k';
+      if (state & BlackLong)  *p++ = 'q';
+    }
+    else {
+      *p++ = '-';
+    }
+    *p++ = ' ';
+    if (ep != None) {
+      *p++ = ('a' + XC(ep));
+      *p++ = ('1' + YC(ep));
+    }
+    else {
+      *p++ = '-';
+    }
+    snprintf(p, (sizeof(fen) - strlen(fen)), " %d %d",
+             rcount, ((mcount + 2) / 2));
+    return fen;
+  }
 
   //---------------------------------------------------------------------------
   inline void AddMove(const Color color, const MoveType type,
@@ -1207,7 +1364,7 @@ struct Node
       const int cap = _board[to]->type;
       assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
-        if (ep && (to == ep) &&
+        if ((ep != None) && (to == ep) &&
             !EpPinned<color>(from, (ep + (color ? North : South))))
         {
           AddMove(color, PawnCap, from, to);
@@ -1362,22 +1519,22 @@ struct Node
     assert(IS_SQUARE(_BLACK_KING->sqr));
     assert(_board[_WHITE_KING->sqr] == _WHITE_KING);
     assert(_board[_BLACK_KING->sqr] == _BLACK_KING);
-    assert((_pcount[White] >= 0) && (_pcount[White] <= 13));
-    assert((_pcount[Black] >= 0) && (_pcount[Black] <= 13));
+    assert((_pcount[White] >= 0) & (_pcount[White] <= 13));
+    assert((_pcount[Black] >= 0) & (_pcount[Black] <= 13));
     assert(_pcount[White] == (_pcount[White|Bishop] + _pcount[White|Rook] +
                               _pcount[White|Queen]));
     assert(_pcount[Black] == (_pcount[Black|Bishop] + _pcount[Black|Rook] +
                               _pcount[Black|Queen]));
-    assert((_pcount[White|Pawn] >= 0) && (_pcount[White|Pawn] <= 8));
-    assert((_pcount[Black|Pawn] >= 0) && (_pcount[Black|Pawn] <= 8));
-    assert((_pcount[White|Knight] >= 0) && (_pcount[White|Knight] <= 10));
-    assert((_pcount[Black|Knight] >= 0) && (_pcount[Black|Knight] <= 10));
-    assert((_pcount[White|Bishop] >= 0) && (_pcount[White|Bishop] <= 10));
-    assert((_pcount[Black|Bishop] >= 0) && (_pcount[Black|Bishop] <= 10));
-    assert((_pcount[White|Rook] >= 0) && (_pcount[White|Rook] <= 10));
-    assert((_pcount[Black|Rook] >= 0) && (_pcount[Black|Rook] <= 10));
-    assert((_pcount[White|Queen] >= 0) && (_pcount[White|Queen] <= 9));
-    assert((_pcount[Black|Queen] >= 0) && (_pcount[Black|Queen] <= 9));
+    assert((_pcount[White|Pawn] >= 0) & (_pcount[White|Pawn] <= 8));
+    assert((_pcount[Black|Pawn] >= 0) & (_pcount[Black|Pawn] <= 8));
+    assert((_pcount[White|Knight] >= 0) & (_pcount[White|Knight] <= 10));
+    assert((_pcount[Black|Knight] >= 0) & (_pcount[Black|Knight] <= 10));
+    assert((_pcount[White|Bishop] >= 0) & (_pcount[White|Bishop] <= 10));
+    assert((_pcount[Black|Bishop] >= 0) & (_pcount[Black|Bishop] <= 10));
+    assert((_pcount[White|Rook] >= 0) & (_pcount[White|Rook] <= 10));
+    assert((_pcount[Black|Rook] >= 0) & (_pcount[Black|Rook] <= 10));
+    assert((_pcount[White|Queen] >= 0) & (_pcount[White|Queen] <= 9));
+    assert((_pcount[Black|Queen] >= 0) & (_pcount[Black|Queen] <= 9));
 
     moveCount = moveIndex = 0;
     if (GetCheckEvasions<color>()) {
@@ -1415,6 +1572,36 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
+  inline void ScootMoveToFront(int idx) {
+    assert((idx >= 0) & (idx < moveCount));
+    while (idx-- > 0) {
+      moves[idx].SwapWith(moves[idx + 1]);
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  inline Move* GetNextMove() {
+    assert(moveIndex >= 0);
+    assert((moveCount >= 0) & (moveCount < MaxMoves));
+
+    if (moveIndex >= moveCount) {
+      return NULL;
+    }
+
+    Move* best = (moves + moveIndex);
+    for (int i = (moveIndex + 1); i < moveCount; ++i) {
+      if (moves[i].GetScore() > best->GetScore()) {
+        best = (moves + i);
+      }
+    }
+    if (best != (moves + moveIndex)) {
+      moves[moveIndex].SwapWith(*best);
+    }
+
+    return (moves + moveIndex++);
+  }
+
+  //---------------------------------------------------------------------------
   template<Color color>
   int ValidateMove(const Move& move) const {
 #ifdef NDEBUG
@@ -1432,9 +1619,9 @@ struct Node
     VASSERT(IS_SQUARE(move.From()));
     VASSERT(IS_SQUARE(move.To()));
     VASSERT(!move.Cap() || IS_CAP(move.Cap()));
-    VASSERT(!move.Cap() || COLOR(move.Cap()) != color);
+    VASSERT(!move.Cap() || (COLOR(move.Cap()) != color));
     VASSERT(!move.Promo() || IS_PROMO(move.Promo()));
-    VASSERT(!move.Promo() || COLOR(move.Promo()) == color);
+    VASSERT(!move.Promo() || (COLOR(move.Promo()) == color));
 
     const int from  = move.From();
     const int to    = move.To();
@@ -1498,7 +1685,7 @@ struct Node
         }
         else {
           VASSERT(_board[to] == _EMPTY);
-          VASSERT(ep && (to == ep));
+          VASSERT((ep != None) && (to == ep));
           const int sqr = (ep + (color ? North : South));
           VASSERT(IS_SQUARE(sqr));
           VASSERT(_board[sqr] != _EMPTY);
@@ -1632,7 +1819,7 @@ struct Node
         dest.pieceKey = pieceKey;
       }
       dest.state = ((state ^ 1) & _TOUCH[from] & _TOUCH[to]);
-      dest.ep = 0;
+      dest.ep = None;
       dest.rcount = 0;
       dest.mcount = (mcount + 1);
       break;
@@ -1691,7 +1878,7 @@ struct Node
         }
       }
       dest.state = ((state ^ 1) & _TOUCH[from] & _TOUCH[to]);
-      dest.ep = 0;
+      dest.ep = None;
       dest.rcount = 0;
       dest.mcount = (mcount + 1);
       break;
@@ -1702,7 +1889,7 @@ struct Node
     case KingMove:
       _board[from] = _EMPTY;
       dest.state = ((state ^ 1) & _TOUCH[from] & _TOUCH[to]);
-      dest.ep = 0;
+      dest.ep = None;
       dest.rcount = (cap ? 0 : (rcount + 1));
       dest.mcount = (mcount + 1);
       if (cap >= Knight) {
@@ -1735,7 +1922,7 @@ struct Node
       _board[color ? F8 : F1]->sqr = (color ? F8 : F1);
       AddAttacksFrom((color|Rook), (color ? F8 : F1));
       dest.state = ((state ^ 1) & ~(color ? BlackCastle : WhiteCastle));
-      dest.ep = 0;
+      dest.ep = None;
       dest.rcount = (rcount + 1);
       dest.mcount = (mcount + 1);
       dest.pawnKey = pawnKey;
@@ -1755,7 +1942,7 @@ struct Node
       _board[color ? D8 : D1]->sqr = (color ? D8 : D1);
       AddAttacksFrom((color|Rook), (color ? D8 : D1));
       dest.state = ((state ^ 1) & ~(color ? BlackCastle : WhiteCastle));
-      dest.ep = 0;
+      dest.ep = None;
       dest.rcount = (rcount + 1);
       dest.mcount = (mcount + 1);
       dest.pawnKey = pawnKey;
@@ -1784,7 +1971,7 @@ struct Node
       AddAttacksFrom(_board[to]->type, to);
     }
 
-    assert(VerifyAttacks(true));
+//    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
@@ -1796,9 +1983,9 @@ struct Node
     assert(IS_SQUARE(move.To()));
     assert(_board[move.From()] == _EMPTY);
     assert(!move.Cap() || IS_CAP(move.Cap()));
-    assert(!move.Cap() || COLOR(move.Cap()) != color);
+    assert(!move.Cap() || (COLOR(move.Cap()) != color));
     assert(!move.Promo() || IS_PROMO(move.Promo()));
-    assert(!move.Promo() || COLOR(move.Promo()) == color);
+    assert(!move.Promo() || (COLOR(move.Promo()) == color));
 
     const int from  = move.From();
     const int to    = move.To();
@@ -1845,7 +2032,7 @@ struct Node
       }
       else {
         assert(moved->type == (color|Pawn));
-        assert(ep && (to == ep));
+        assert((ep != None) && (to == ep));
         const int sqr = (ep + (color ? North : South));
         assert(_board[sqr] == _EMPTY);
         if (_atkd[sqr]) {
@@ -1950,10 +2137,31 @@ struct Node
       }
     }
 
-    assert(VerifyAttacks(true));
+//    assert(VerifyAttacks(true));
   }
 
-  //-----------------------------------------------------------------------------
+  //---------------------------------------------------------------------------
+  template<Color color>
+  inline void ExecNullMove(Node& dest) const {
+    assert(COLOR(state) == color);
+    assert(checkState == NotInCheck);
+    assert(&dest != this);
+
+    _stats.nullMoves++;
+
+    dest.lastMove.Clear();
+    dest.mcount = mcount;
+    dest.rcount = rcount;
+    dest.state = (state ^ 1);
+    dest.ep = None;
+    dest.checkState = CheckState::NotInCheck;
+    dest.pieceKey = pieceKey;
+    dest.positionKey = (pieceKey ^
+                        _HASH[0][dest.state & 0x1F] ^
+                        _HASH[0][None]);
+  }
+
+  //---------------------------------------------------------------------------
   template<Color color>
   uint64_t PerftSearch(const int depth) {
     GenerateMoves<color>();
@@ -2002,7 +2210,894 @@ struct Node
     return total;
   }
 
+  //---------------------------------------------------------------------------
+  inline void UpdatePV(const Move& move) {
+    pv[0] = move;
+    if (child) {
+      if ((pvCount = (child->pvCount + 1)) > 1) {
+        assert(pvCount <= MaxPlies);
+        memcpy((pv + 1), child->pv, (child->pvCount * sizeof(Move)));
+      }
+    }
+    else {
+      pvCount = 1;
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  void OutputPV(const int score, const int bound = 0) const {
+    if (pvCount > 0) {
+      const uint64_t msecs = (senjo::Now() - _startTime);
+      senjo::Output out(senjo::Output::NoPrefix);
+
+      const uint64_t nodes = (_stats.snodes + _stats.qnodes);
+      out << "info depth " << _depth
+          << " seldepth " << _seldepth
+          << " nodes " << nodes
+          << " time " << msecs
+          << " nps " << static_cast<uint64_t>(senjo::Rate(nodes, msecs));
+
+      if (bound) {
+        out << " currmovenumber " << _movenum
+            << " currmove " << _currmove;
+      }
+
+      if (abs(score) < MateScore) {
+        out << " score cp " << score;
+      }
+      else {
+        const int count = (Infinity - abs(score));
+        const int mate = ((count + 1) / 2);
+        out << " score mate " << ((score < 0) ? -mate : mate);
+      }
+
+      if (bound) {
+        out << ((bound < 0) ? " upperbound" : " lowerbound");
+      }
+      else {
+        out << " pv";
+        for (int i = 0; i < pvCount; ++i) {
+          const Move& move = pv[i];
+          out << ' ' << move.ToString();
+        }
+      }
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  inline bool IsDraw() const {
+    return ((state & Draw) | (rcount >= 100) | _seen.count(positionKey));
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  inline bool InCheck() {
+    assert(color == COLOR(state));
+    if (checkState == CheckState::Unknown) {
+      if (AttackedBy<!color>(_piece[2 + color].sqr)) {
+        checkState = IsInCheck;
+      }
+      else {
+        checkState = NotInCheck;
+      }
+    }
+    return (checkState == IsInCheck);
+  }
+
+  //---------------------------------------------------------------------------
+  inline void AddKiller(const Move& move) {
+    if (move != killer[0]) {
+      killer[1] = killer[0];
+      killer[0] = move;
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  inline bool IsKiller(const Move& move) const {
+    return ((move == killer[0]) | (move == killer[1]));
+  }
+
+  //--------------------------------------------------------------------------
+  template<Color color>
+  int QSearch(int alpha, int beta, const int depth) {
+    assert(alpha < beta);
+    assert(abs(alpha) <= Infinity);
+    assert(abs(beta) <= Infinity);
+    assert(depth <= 0);
+
+    _stats.qnodes++;
+    if (ply > _seldepth) {
+      _seldepth = ply;
+    }
+
+    pvCount = 0;
+    if (IsDraw()) {
+      return _drawScore[color];
+    }
+
+    // mate distance pruning and standPat beta cutoff
+    assert(standPat > (ply - Infinity));
+    const bool check = InCheck<color>();
+    int best = (check ? (ply - Infinity) : standPat);
+    alpha = std::max<int>(best, alpha);
+    beta = std::min<int>((Infinity - ply + 1), beta);
+    if ((alpha >= beta) | !child) {
+      return alpha;
+    }
+
+    // transposition table
+    Move firstMove;
+    HashEntry* entry = _tt.Probe(positionKey);
+    if (entry) {
+      switch (entry->GetPrimaryFlag()) {
+      case HashEntry::Checkmate: return (ply - Infinity);
+      case HashEntry::Stalemate: return _drawScore[color];
+      case HashEntry::UpperBound:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(ValidateMove<color>(firstMove) == 0);
+        if (entry->score <= alpha) {
+          pv[0] = firstMove;
+          pvCount = 1;
+          return entry->score;
+        }
+        break;
+      case HashEntry::ExactScore:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(ValidateMove<color>(firstMove) == 0);
+        pv[0] = firstMove;
+        pvCount = 1;
+        if ((entry->score >= beta) && !firstMove.IsCapOrPromo()) {
+          IncHistory(firstMove, check, entry->depth);
+          AddKiller(firstMove);
+        }
+        return entry->score;
+      case HashEntry::LowerBound:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(ValidateMove<color>(firstMove) == 0);
+        if (entry->score >= beta) {
+          pv[0] = firstMove;
+          pvCount = 1;
+          if (!firstMove.IsCapOrPromo()) {
+            IncHistory(firstMove, check, entry->depth);
+            AddKiller(firstMove);
+          }
+          return entry->score;
+        }
+        if (entry->score > best) {
+          best = entry->score;
+          if (best > alpha) {
+            alpha = best;
+          }
+        }
+        break;
+      default:
+        assert(false);
+      }
+    }
+
+    assert(alpha < beta);
+    assert(best < beta);
+    assert(best <= alpha);
+
+    // search firstMove if we have it
+    const int orig_alpha = alpha;
+    if (firstMove.Type()) {
+      _stats.qexecs++;
+      Exec<color>(firstMove, *child);
+      if (!check & !firstMove.IsCapOrPromo() & !child->InCheck<!color>()) {
+        Undo<color>(firstMove);
+      }
+      else {
+        firstMove.Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
+        Undo<color>(firstMove);
+        if (_stop) {
+          return beta;
+        }
+        if (firstMove.GetScore() > alpha) {
+          alpha = firstMove.GetScore();
+        }
+        if (firstMove.GetScore() > best) {
+          best = firstMove.GetScore();
+          UpdatePV(firstMove);
+          if (firstMove.GetScore() >= beta) {
+            if (!firstMove.IsCapOrPromo()) {
+              AddKiller(firstMove);
+            }
+            if (check) {
+              firstMove.Score() = beta;
+              _tt.Store(positionKey, firstMove, 0, HashEntry::LowerBound, 0);
+            }
+            return best;
+          }
+        }
+      }
+    }
+
+    // generate moves
+    GenerateMoves<color>(); // TODO make QSearchMoveGen(depth)
+    if (moveCount <= 0) {
+      if (check) {
+        assert(!firstMove.IsValid());
+        _tt.StoreCheckmate(positionKey);
+        return (ply - Infinity);
+      }
+      // don't call _tt.StoreStalemate()!!!
+      assert(best >= standPat);
+      assert(best < beta);
+      return best;
+    }
+
+    // search 'em
+    Move* move;
+    while ((move = GetNextMove())) {
+      if (firstMove == (*move)) {
+        assert(firstMove.IsValid());
+        continue;
+      }
+
+      _stats.qexecs++;
+      Exec<color>(*move, *child);
+      if (!check & (depth < 0) & !move->Promo() &&
+          ((standPat + ValueOf(move->Cap()) + 900) <= alpha) & // TODO adjust delta
+          !child->InCheck<!color>())
+      {
+        _stats.deltaCount++;
+        Undo<color>(*move);
+        if (_stop) {
+          return beta;
+        }
+        continue;
+      }
+
+      move->Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
+      Undo<color>(*move);
+      if (_stop) {
+        return beta;
+      }
+      if (move->GetScore() > alpha) {
+        alpha = move->GetScore();
+      }
+      if (move->GetScore() > best) {
+        best = move->GetScore();
+        UpdatePV(*move);
+        if (move->GetScore() >= beta) {
+          if (!move->IsCapOrPromo()) {
+            AddKiller(*move);
+          }
+          if (check) {
+            move->Score() = beta;
+            _tt.Store(positionKey, *move, 0, HashEntry::LowerBound, 0);
+          }
+          return best;
+        }
+      }
+    }
+
+    assert(best <= alpha);
+    assert(alpha < beta);
+
+    if (check & (pvCount > 0)) {
+      if (alpha > orig_alpha) {
+        assert(pv[0].GetScore() == alpha);
+        assert(beta > (orig_alpha + 1));
+        _tt.Store(positionKey, pv[0], 0, HashEntry::ExactScore,
+            HashEntry::FromPV);
+      }
+      else {
+        assert(alpha == orig_alpha);
+        assert(pv[0].GetScore() <= alpha);
+        pv[0].Score() = alpha;
+        _tt.Store(positionKey, pv[0], 0, HashEntry::UpperBound, 0);
+      }
+    }
+
+    return best;
+  }
+
+  //---------------------------------------------------------------------------
+  template<NodeType type, Color color>
+  int Search(int alpha, int beta, int depth, const bool cutNode) {
+    assert(parent);
+    assert(ply > 0);
+    assert(alpha < beta);
+    assert(abs(alpha) <= Infinity);
+    assert(abs(beta) <= Infinity);
+    assert(depth > 0);
+    assert(depthChange <= 1);
+    assert((depth + depthChange) > 0);
+    assert((type == PV) | ((alpha + 1) == beta));
+
+    _stats.snodes++;
+    moveCount = 0;
+    pvCount   = 0;
+
+    if (IsDraw()) {
+      return _drawScore[color];
+    }
+
+    // mate distance pruning
+    int best = (ply - Infinity);
+    alpha = std::max<int>(best, alpha);
+    beta = std::min<int>((Infinity - ply + 1), beta);
+    if ((alpha >= beta) | !child) {
+      return alpha;
+    }
+
+    depth += depthChange;
+
+    // check extensions
+    const bool check = InCheck<color>();
+    if (check & (depthChange <= 0) & (parent->depthChange <= 0)) {
+      _stats.chkExts++;
+      depthChange++;
+      depth++;
+    }
+
+    // transposition table
+    const bool pvNode = (type == PV);
+    HashEntry* entry = _tt.Probe(positionKey);
+    Move firstMove;
+    int eval = standPat;
+    if (entry) {
+      switch (entry->GetPrimaryFlag()) {
+      case HashEntry::Checkmate: return (ply - Infinity);
+      case HashEntry::Stalemate: return _drawScore[color];
+      case HashEntry::UpperBound:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(ValidateMove<color>(firstMove) == 0);
+        if ((!pvNode | entry->HasPvFlag()) &
+            (entry->depth >= depth) & (entry->score <= alpha))
+        {
+          pv[0] = firstMove;
+          pvCount = 1;
+          return entry->score;
+        }
+        if ((entry->depth >= (depth - 3)) & (entry->score < eval)) {
+          eval = entry->score;
+        }
+        break;
+      case HashEntry::ExactScore:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(entry->HasPvFlag());
+        assert(ValidateMove<color>(firstMove) == 0);
+        if ((entry->depth >= depth) & ((entry->score <= alpha) |
+                                       (entry->score >= beta)))
+        {
+          pv[0] = firstMove;
+          pvCount = 1;
+          if ((entry->score >= beta) & !firstMove.IsCapOrPromo()) {
+            IncHistory(firstMove, check, entry->depth);
+            AddKiller(firstMove);
+          }
+          return entry->score;
+        }
+        if (entry->depth >= (depth - 3)) {
+          eval = entry->score;
+        }
+        break;
+      case HashEntry::LowerBound:
+        firstMove.Init(entry->moveBits, entry->score);
+        assert(ValidateMove<color>(firstMove) == 0);
+        if ((!pvNode | entry->HasPvFlag()) &
+            (entry->depth >= depth) & (entry->score >= beta))
+        {
+          pv[0] = firstMove;
+          pvCount = 1;
+          if (!firstMove.IsCapOrPromo()) {
+            IncHistory(firstMove, check, entry->depth);
+            AddKiller(firstMove);
+          }
+          return entry->score;
+        }
+        if ((entry->depth >= (depth - 3)) & (entry->score > eval)) {
+          eval = entry->score;
+        }
+        break;
+      default:
+        assert(false);
+      }
+      if (entry->HasExtendedFlag() & (depthChange <= 0) &
+          (parent->depthChange <= 0))
+      {
+        _stats.hashExts++;
+        depthChange++;
+        depth++;
+      }
+    }
+
+    // forward pruning prerequisites
+    if (pvNode || !(pruneOK & !check & (depthChange <= 0))) {
+      goto search_main;
+    }
+
+    // razoring (fail low pruning)
+    if (((depth < 4) & (alpha < WinningScore) & !parent->InCheck<!color>()) &&
+        // TODO && no pawns on 2nd/7th rank
+        ((eval + RazorDelta(depth)) <= alpha))
+    {
+      _stats.rzrCount++;
+      if ((depth <= 1) & ((eval + RazorDelta(3 * depth)) <= alpha)) {
+        _stats.rzrEarlyOut++;
+        return QSearch<color>(alpha, beta, 0);
+      }
+      const int ralpha = (alpha - RazorDelta(depth));
+      const int val = QSearch<color>(ralpha, (ralpha + 1), 0);
+      if (_stop) {
+        return beta;
+      }
+      if (val <= ralpha) {
+        _stats.rzrCutoffs++;
+        return val;
+      }
+    }
+
+    // null move heuristics prerequisites
+    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
+        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn]) < 4))
+    {
+      goto search_main;
+    }
+
+    // futility pruning (static null move pruning)
+    if ((cutNode & (depth < 7)) && // TODO try different max depths
+        ((eval - FutilityDelta(depth)) >= beta))
+    {
+      _stats.futility++;
+      pvCount = 0;
+      return (eval - FutilityDelta(depth));
+    }
+
+    int searchDepth;
+    if (depth > 1) {
+      if (eval >= beta) {
+        // null move pruning
+        ExecNullMove<color>(*child);
+        child->pruneOK = false;
+        child->depthChange = 0;
+        searchDepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
+        eval = (searchDepth > 0)
+            ? -child->Search<NonPV, !color>(-beta, -alpha, searchDepth, false)
+            : -child->QSearch<!color>(-beta, -alpha, 0);
+        if (_stop) {
+          return beta;
+        }
+        if (eval >= beta) {
+          // TODO do verification search if depth reduction > 4
+          _stats.nmCutoffs++;
+          pvCount = 0;
+          return (standPat >= beta) ? standPat : beta; // do not return eval
+        }
+      }
+      else if (cutNode & (depth > 2) & !parent->InCheck<!color>() &
+               (eval >= -parent->standPat) & !lastMove.IsCapOrPromo() &
+               !((lastMove.Type() == PawnMove) &
+                 (YC(lastMove.To()) == (color ? 6 : 1))))
+      {
+        // null move reductions
+        _stats.nmrCandidates++;
+        ExecNullMove<color>(*child);
+        eval = -child->QSearch<!color>(-standPat, (1 - standPat), 0);
+        if (_stop) {
+          return beta;
+        }
+        if (eval >= standPat) {
+          // last move looks pretty quiet and we're already expecting
+          // to be able to refute it (this is a cutNode) so we're betting we
+          // can reduce depth and still refute it.  if not, we spend less time
+          // determining that the last move is actually pretty good.
+          // but this can backfire if:
+          // 1) reduced depth fails low here (fails high in parent)
+          // 2) parent failes low on re-search at full depth
+          // example stats: 4896 nmr candidates, 3254 reduced (66.4624%), 114 backfires (3.50338%)
+//          senjo::Output() << parent->moveIndex << ", " << lastMove.ToString()
+//                          << ", " << -parent->standPat
+//                          << ", " << eval
+//                          << ", " << standPat;
+//          PrintBoard();
+          _stats.nmReductions++;
+          depthChange -= (1 + (eval >= -parent->standPat));
+          depth -= (1 + (eval >= -parent->standPat));
+        }
+      }
+    }
+    pruneOK = false;
+
+    // internal iterative deepening
+    if (!firstMove.Type() & (beta < Infinity) &
+        ((beta - 1) > -Infinity) & (depth >= (pvNode ? 4 : 6)))
+    {
+      assert(!pvCount);
+      _stats.iidCount++;
+      // subtract depthChange because it will be added again at top of Search()
+      searchDepth = (depth - depthChange - (pvNode ? 2 : 4));
+      eval = Search<NonPV, color>((beta - 1), beta, searchDepth, true);
+      if (_stop | !pvCount) {
+        return eval;
+      }
+      assert(pv[0].IsValid());
+      firstMove = pv[0];
+    }
+
+search_main:
+
+    // make sure firstMove is populated
+    if (!firstMove.Type()) {
+      GenerateMoves<color>();
+      if (moveCount <= 0) {
+        if (check) {
+          _tt.StoreCheckmate(positionKey);
+          return (ply - Infinity);
+        }
+        _tt.StoreStalemate(positionKey);
+        return _drawScore[0];
+      }
+      firstMove = *GetNextMove();
+
+      // single reply extensions
+      if ((moveCount == 1) & (depthChange <= 0) & (parent->depthChange <= 0)) {
+        _stats.oneReplyExts++;
+        depthChange++;
+        depth++;
+      }
+    }
+
+    // search first move with full alpha/beta window
+    assert(depth > 0);
+    const int orig_alpha = alpha;
+    Exec<color>(firstMove, *child);
+    child->pruneOK = true;
+    child->depthChange = 0;
+    eval = (depth > 1)
+        ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), !cutNode)
+        : -child->QSearch<!color>(-beta, -alpha, 0);
+    assert(!pvNode || (child->depthChange >= 0));
+    assert((depth + child->depthChange) >= 0);
+    if (_stop) {
+      Undo<color>(firstMove);
+      return beta;
+    }
+    if ((eval > alpha) & (child->depthChange < 0)) {
+      assert(!pvNode);
+      assert(depth > 1);
+      child->pruneOK = false;
+      child->depthChange = 0;
+      eval = -child->Search<type, !color>(-beta, -alpha, (depth - 1), false);
+      if (_stop) {
+        Undo<color>(firstMove);
+        return beta;
+      }
+    }
+    Undo<color>(firstMove);
+    int pvDepth = (depth + ((child->depthChange < 0) ? child->depthChange : 0));
+    best = eval;
+    UpdatePV(firstMove);
+    if (eval > alpha) {
+      alpha = eval;
+    }
+    else if (!firstMove.IsCapOrPromo()) {
+      DecHistory(firstMove, check);
+    }
+    if (eval >= beta) {
+      if (!firstMove.IsCapOrPromo()) {
+        IncHistory(firstMove, check, pvDepth);
+        AddKiller(firstMove);
+      }
+      firstMove.Score() = beta;
+      _tt.Store(positionKey, firstMove, pvDepth, HashEntry::LowerBound,
+                (((depthChange > 0) ? HashEntry::Extended : 0) |
+                 (pvNode ? HashEntry::FromPV : 0)));
+      return best;
+    }
+
+    // generate moves if we haven't done so already
+    if (moveCount <= 0) {
+      GenerateMoves<color>();
+      assert(moveCount > 0);
+
+      // single reply extensions
+      if ((moveCount == 1) & (depthChange <= 0) & (parent->depthChange <= 0)) {
+        _stats.oneReplyExts++;
+        depthChange++;
+        depth++;
+      }
+    }
+
+    // search remaining moves
+    const bool lmr_ok = ((cutNode | !pvNode) & !check & (depth > 2));
+    Move* move;
+    moveIndex = 0;
+    while ((move = GetNextMove())) {
+      if (firstMove == (*move)) {
+        assert(firstMove.IsValid());
+        continue;
+      }
+
+      Exec<color>(*move, *child);
+
+      // late move reductions
+      _stats.lateMoves++;
+      if (lmr_ok) _stats.lmCandidates++;
+      if (lmr_ok &
+          !move->IsCapOrPromo() &
+          !IsKiller(*move) &
+          (_hist[move->HistoryIndex()] < 0) &
+          (!pvNode || (moveIndex > 7)) &
+          !child->InCheck<!color>())
+      {
+        _stats.lmReductions++;
+        child->pruneOK = true;
+        child->depthChange = -(1 + (!pvNode &
+                                    (-child->standPat <= -parent->standPat)));
+      }
+      else {
+        child->pruneOK = true;
+        child->depthChange = 0;
+      }
+
+      // first search with a null window to quickly see if it improves alpha
+      eval = ((depth + child->depthChange - 1) > 0)
+          ? -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), true)
+          : -child->QSearch<!color>(-(alpha + 1), -alpha, 0);
+
+      // re-search at full depth?
+      if (!_stop && (eval > alpha) && (child->depthChange < 0)) {
+        assert(depth > 1);
+        _stats.lmResearches++;
+        child->pruneOK = false;
+        child->depthChange = 0;
+        eval = -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), false);
+        if (!_stop && (eval > alpha)) {
+          _stats.lmConfirmed++;
+        }
+      }
+
+      // re-search with full window?
+      if (!_stop && pvNode && (eval > alpha)) {
+        child->pruneOK = false;
+        assert(child->depthChange >= 0);
+        eval = (depth > 1)
+            ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), false)
+            : -child->QSearch<!color>(-beta, -alpha, 0);
+      }
+
+      Undo<color>(*move);
+      if (_stop) {
+        return beta;
+      }
+      if (eval > alpha) {
+        alpha = eval;
+        _stats.lmAlphaIncs++;
+        assert(child->depthChange >= 0);
+      }
+      else if (!move->IsCapOrPromo()) {
+        DecHistory(*move, check);
+      }
+      if (eval > best) {
+        best = eval;
+        UpdatePV(*move);
+        assert((depth + child->depthChange) >= 0);
+        pvDepth = (depth + ((child->depthChange < 0) ? child->depthChange : 0));
+        if (eval >= beta) {
+          if (!move->IsCapOrPromo()) {
+            IncHistory(*move, check, pvDepth);
+            AddKiller(*move);
+          }
+          move->Score() = beta;
+          _tt.Store(positionKey, *move, pvDepth, HashEntry::LowerBound,
+                    (((depthChange > 0) ? HashEntry::Extended : 0) |
+                     (pvNode ? HashEntry::FromPV : 0)));
+          return best;
+        }
+      }
+    }
+
+    assert(moveCount > 0);
+    assert(best <= alpha);
+    assert(alpha < beta);
+
+    if (pvCount > 0) {
+      pv[0].Score() = alpha;
+      if (alpha > orig_alpha) {
+        assert(pvNode);
+        assert(pvDepth == depth);
+        if (!pv[0].IsCapOrPromo()) {
+          IncHistory(pv[0], check, pvDepth);
+        }
+        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::ExactScore,
+            (((depthChange > 0) ? HashEntry::Extended : 0) |
+             HashEntry::FromPV));
+      }
+      else {
+        assert(alpha == orig_alpha);
+        assert(pvDepth <= depth);
+        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::UpperBound,
+            (((depthChange > 0) ? HashEntry::Extended : 0) |
+             (pvNode ? HashEntry::FromPV : 0)));
+      }
+    }
+
+    return best;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  std::string SearchRoot(const int depth) {
+    assert(!parent);
+    assert(child);
+    assert(!ply);
+
+    pruneOK = false;
+    depthChange = 0;
+
+    GenerateMoves<color>();
+    if (moveCount <= 0) {
+      senjo::Output() << "No legal moves";
+      return std::string();
+    }
+
+    // sort 'em
+    std::sort(moves, (moves + moveCount), Move::ScoreCompare);
+
+    // move transposition table move (if any) to front of list
+    if (moveCount > 1) {
+      HashEntry* entry = _tt.Probe(positionKey);
+      if (entry) {
+        switch (entry->GetPrimaryFlag()) {
+        case HashEntry::Checkmate:
+        case HashEntry::Stalemate:
+          assert(false);
+          break;
+        case HashEntry::UpperBound:
+        case HashEntry::ExactScore:
+        case HashEntry::LowerBound: {
+          const Move ttMove(entry->moveBits, entry->score);
+          assert(ValidateMove<color>(ttMove) == 0);
+          for (int i = 0; i < moveCount; ++i) {
+            if (moves[i] == ttMove) {
+              ScootMoveToFront(i);
+              break;
+            }
+          }
+          break;
+        }}
+      }
+    }
+
+    // initial principal variation
+    pvCount = 1;
+    pv[0] = moves[0];
+
+    // return immediately if we only have one move
+    if (moveCount == 1) {
+      OutputPV(pv[0].GetScore());
+      return pv[0].ToString();
+    }
+
+    Move* move;
+    bool  newPV = true;
+    bool  showPV = true;
+    int   alpha;
+    int   best = standPat;
+    int   beta;
+    int   delta;
+
+    // iterative deepening
+    for (int d = 0; !_stop && (d < depth); ++d) {
+      _seldepth = _depth = (d + 1);
+
+      newPV = true;
+      delta = (_depth < 5) ? HugeDelta : 25;
+      alpha = std::max<int>((best - delta), -Infinity);
+      beta  = std::min<int>((best + delta), +Infinity);
+
+      for (moveIndex = 0; !_stop && (moveIndex < moveCount); ++moveIndex) {
+        move      = (moves + moveIndex);
+        _currmove = move->ToString();
+        _movenum  = (moveIndex + 1);
+
+        child->pruneOK = true;
+        child->depthChange = 0;
+        Exec<color>(*move, *child);
+        move->Score() = (_depth > 1)
+            ? ((_movenum == 1)
+               ? -child->Search<PV, !color>(-beta, -alpha, (_depth - 1), false)
+               : -child->Search<NonPV, !color>(-beta, -alpha, (_depth - 1), true))
+            : -child->QSearch<!color>(-beta, -alpha, 0);
+        assert(move->GetScore() > -Infinity);
+        assert(move->GetScore() < Infinity);
+        if (_stop) {
+          Undo<color>(*move);
+          break;
+        }
+
+        // re-search to get real score?
+        if ((move->GetScore() >= beta) |
+            ((move->GetScore() <= alpha) & (_movenum == 1)))
+        {
+          int bound[2] = { -Infinity, Infinity };
+          newPV = true;
+          delta = (_depth < 5) ? HugeDelta : 100;
+          do {
+            if (move->GetScore() >= beta) {
+              OutputPV(move->GetScore(), 1); // report lowerbound
+              beta = std::min<int>(Infinity, (move->GetScore() + delta));
+              alpha = (move->GetScore() - 1);
+            }
+            else {
+              assert(move->GetScore() <= alpha);
+              OutputPV(move->GetScore(), -1); // report upperbound
+              if (_movenum == 1) {
+                alpha = std::max<int>(-Infinity, (move->GetScore() - delta));
+              }
+              else {
+                alpha = std::max<int>(best, (move->GetScore() - delta));
+              }
+              beta = (move->GetScore() + 1);
+            }
+            child->pruneOK = false;
+            child->depthChange = 0;
+            move->Score() = (_depth > 1)
+                ? -child->Search<PV, !color>(-beta, -alpha, (_depth - 1), false)
+                : -child->QSearch<!color>(-beta, -alpha, 0);
+            assert(move->GetScore() > -Infinity);
+            assert(move->GetScore() < Infinity);
+            if (_stop) {
+              break;
+            }
+            if ((_movenum > 1) & (move->GetScore() <= best)) {
+              newPV = false;
+              break;
+            }
+            if (move->GetScore() > bound[0]) {
+              bound[0] = move->GetScore();
+            }
+            else if (move->GetScore() < bound[1]) {
+              bound[1] = move->GetScore();
+            }
+            else {
+              // TODO increase time
+              senjo::Output() << "UNSTABLE(" << move->GetScore() << ", "
+                              << bound[0] << ", " << bound[1] << ")";
+              break;
+            }
+            if (abs(move->GetScore()) >= 1000) {
+              delta = HugeDelta;
+            }
+          } while ((move->GetScore() <= alpha) | (move->GetScore() >= beta));
+        }
+        Undo<color>(*move);
+
+        // do we have a new principal variation?
+        if (newPV) {
+          newPV = false;
+          showPV = false;
+          UpdatePV(*move);
+          if (!_stop &&
+              (move->GetScore() > alpha) && (move->GetScore() < beta))
+          {
+            OutputPV(move->GetScore());
+            _tt.Store(positionKey, *move, _depth, HashEntry::ExactScore,
+                      HashEntry::FromPV);
+          }
+
+          best = alpha = move->GetScore();
+          ScootMoveToFront(moveIndex);
+        }
+
+        // set null aspiration window now that we have a principal variation
+        beta = (alpha + 1);
+      }
+    }
+
+    if (showPV) {
+      OutputPV(pv[0].GetScore());
+    }
+
+    return pv[0].ToString();
+  }
 };
+
+//-----------------------------------------------------------------------------
 Node _node[MaxPlies];
 
 //-----------------------------------------------------------------------------
@@ -2023,13 +3118,11 @@ Clunk::Clunk()
 }
 
 //-----------------------------------------------------------------------------
-Clunk::~Clunk()
-{
+Clunk::~Clunk() {
 }
 
 //-----------------------------------------------------------------------------
-bool Clunk::IsInitialized() const
-{
+bool Clunk::IsInitialized() const {
   return initialized;
 }
 
@@ -2041,14 +3134,12 @@ bool Clunk::SetEngineOption(const std::string& /*optionName*/,
 }
 
 //-----------------------------------------------------------------------------
-bool Clunk::WhiteToMove() const
-{
+bool Clunk::WhiteToMove() const {
   return !COLOR(root->state);
 }
 
 //-----------------------------------------------------------------------------
-const char* Clunk::MakeMove(const char* str)
-{
+const char* Clunk::MakeMove(const char* str) {
   if (!initialized || !str ||
       !IS_X(str[0]) || !IS_Y(str[1]) ||
       !IS_X(str[2]) || !IS_Y(str[3]))
@@ -2120,8 +3211,7 @@ const char* Clunk::MakeMove(const char* str)
 }
 
 //-----------------------------------------------------------------------------
-const char* Clunk::SetPosition(const char* fen)
-{
+const char* Clunk::SetPosition(const char* fen) {
   if (!fen || !*fen) {
     senjo::Output() << "NULL or empty fen string";
     return NULL;
@@ -2134,9 +3224,11 @@ const char* Clunk::SetPosition(const char* fen)
   memset(_atkd, 0, sizeof(_atkd));
   _seen.clear();
 
+  _board[None] = _EMPTY;
+
   root->checkState = CheckState::Unknown;
   root->state = 0;
-  root->ep = 0;
+  root->ep = None;
   root->rcount = 0;
   root->mcount = 0;
   root->pawnKey = 0ULL;
@@ -2418,33 +3510,28 @@ const char* Clunk::SetPosition(const char* fen)
 }
 
 //-----------------------------------------------------------------------------
-std::list<senjo::EngineOption> Clunk::GetOptions() const
-{
+std::list<senjo::EngineOption> Clunk::GetOptions() const {
   std::list<senjo::EngineOption> opts;
   return opts;
 }
 
 //-----------------------------------------------------------------------------
-std::string Clunk::GetAuthorName() const
-{
+std::string Clunk::GetAuthorName() const {
   return "Shawn Chidester";
 }
 
 //-----------------------------------------------------------------------------
-std::string Clunk::GetCountryName() const
-{
+std::string Clunk::GetCountryName() const {
   return "USA";
 }
 
 //-----------------------------------------------------------------------------
-std::string Clunk::GetEngineName() const
-{
+std::string Clunk::GetEngineName() const {
   return (sizeof(void*) == 8) ? "Clunk" : "Clunk (32-bit)";
 }
 
 //-----------------------------------------------------------------------------
-std::string Clunk::GetEngineVersion() const
-{
+std::string Clunk::GetEngineVersion() const {
   std::string rev = MAKE_XSTR(GIT_REV);
   if (rev.size() > 7) {
     rev = rev.substr(0, 7);
@@ -2453,87 +3540,17 @@ std::string Clunk::GetEngineVersion() const
 }
 
 //-----------------------------------------------------------------------------
-std::string Clunk::GetFEN() const
-{
-  char fen[256] = {0};
-  char* p = fen;
-  int empty = 0;
-
-  // piece positions
-  for (int y = 7; y >= 0; --y) {
-    for (int x = 0; x < 8; ++x) {
-      const int type = _board[SQR(x,y)]->type;
-      if (type && empty) {
-        *p++ = ('0' + empty);
-        empty = 0;
-      }
-      switch (type) {
-      case (White|Pawn):   *p++ = 'P'; break;
-      case (Black|Pawn):   *p++ = 'p'; break;
-      case (White|Knight): *p++ = 'N'; break;
-      case (Black|Knight): *p++ = 'n'; break;
-      case (White|Bishop): *p++ = 'B'; break;
-      case (Black|Bishop): *p++ = 'b'; break;
-      case (White|Rook):   *p++ = 'R'; break;
-      case (Black|Rook):   *p++ = 'r'; break;
-      case (White|Queen):  *p++ = 'Q'; break;
-      case (Black|Queen):  *p++ = 'q'; break;
-      case (White|King):   *p++ = 'K'; break;
-      case (Black|King):   *p++ = 'k'; break;
-      default:
-        empty++;
-      }
-    }
-    if (empty) {
-      *p++ = ('0' + empty);
-      empty = 0;
-    }
-    if (y > 0) {
-      *p++ = '/';
-    }
-  }
-
-  // color to move
-  *p++ = ' ';
-  *p++ = (COLOR(root->state) ? 'b' : 'w');
-
-  // castling
-  *p++ = ' ';
-  if (root->state & CastleMask) {
-    if (root->state & WhiteShort) *p++ = 'K';
-    if (root->state & WhiteLong)  *p++ = 'Q';
-    if (root->state & BlackShort) *p++ = 'k';
-    if (root->state & BlackLong)  *p++ = 'q';
-  }
-  else {
-    *p++ = '-';
-  }
-
-  // en passant square
-  *p++ = ' ';
-  if (root->ep) {
-    *p++ = ('a' + XC(root->ep));
-    *p++ = ('1' + YC(root->ep));
-  }
-  else {
-    *p++ = '-';
-  }
-
-  // reversible half-move count and full move count
-  snprintf(p, (sizeof(fen) - strlen(fen)), " %d %d",
-           root->rcount, ((root->mcount + 2) / 2));
-  return fen;
+std::string Clunk::GetFEN() const {
+  return root->GetFEN();
 }
 
 //-----------------------------------------------------------------------------
-void Clunk::ClearSearchData()
-{
+void Clunk::ClearSearchData() {
   // TODO
 }
 
 //-----------------------------------------------------------------------------
-void Clunk::Initialize()
-{
+void Clunk::Initialize() {
   InitNodes();
   InitDistDir();
   InitMoveMaps();
@@ -2542,60 +3559,28 @@ void Clunk::Initialize()
 }
 
 //-----------------------------------------------------------------------------
-void Clunk::PonderHit()
-{
+void Clunk::PonderHit() {
 }
 
 //-----------------------------------------------------------------------------
-void Clunk::PrintBoard() const
-{
-  senjo::Output out;
-  out << '\n';
-  for (int y = 7; y >= 0; --y) {
-    for (int x = 0; x < 8; ++x) {
-      switch (_board[SQR(x,y)]->type) {
-      case (White|Pawn):   out << " P"; break;
-      case (White|Knight): out << " N"; break;
-      case (White|Bishop): out << " B"; break;
-      case (White|Rook):   out << " R"; break;
-      case (White|Queen):  out << " Q"; break;
-      case (White|King):   out << " K"; break;
-      case (Black|Pawn):   out << " p"; break;
-      case (Black|Knight): out << " n"; break;
-      case (Black|Bishop): out << " b"; break;
-      case (Black|Rook):   out << " r"; break;
-      case (Black|Queen):  out << " q"; break;
-      case (Black|King):   out << " k"; break;
-      default:
-        out << (((x ^ y) & 1) ? " -" : "  ");
-      }
-    }
-    switch (y) {
-    case 7:
-      out << (COLOR(root->state) ? "  Black to move" : "  White to move");
-      break;
-    case 6:
-      out << "  Castling Rights   : ";
-      if (root->state & WhiteShort) out << 'K';
-      if (root->state & WhiteLong)  out << 'Q';
-      if (root->state & BlackShort) out << 'k';
-      if (root->state & BlackLong)  out << 'q';
-      break;
-    case 5:
-      if (root->ep) {
-        out << "  En Passant Square : " << senjo::Square(root->ep).ToString();
-      }
-      break;
-    }
-    out << '\n';
-  }
-  out << '\n';
+void Clunk::PrintBoard() const {
+  root->PrintBoard();
 }
 
 //-----------------------------------------------------------------------------
 void Clunk::Quit() {
   ChessEngine::Quit();
   clunk::_stop |= senjo::ChessEngine::FullStop;
+}
+
+//-----------------------------------------------------------------------------
+void Clunk::ResetStatsTotals() {
+  _totalStats.Clear();
+}
+
+//-----------------------------------------------------------------------------
+void Clunk::ShowStatsTotals() const {
+  _totalStats.Average().Print();
 }
 
 //-----------------------------------------------------------------------------
@@ -2633,13 +3618,12 @@ void Clunk::GetStats(int* depth,
     *movenum = _movenum;
   }
   if (move && movelen) {
-    snprintf(move, movelen, "%s", _currmove.ToString().c_str());
+    snprintf(move, movelen, "%s", _currmove.c_str());
   }
 }
 
 //-----------------------------------------------------------------------------
-uint64_t Clunk::MyPerft(const int depth)
-{
+uint64_t Clunk::MyPerft(const int depth) {
   if (!initialized) {
     senjo::Output() << "Engine not initialized";
     return 0;
@@ -2650,7 +3634,7 @@ uint64_t Clunk::MyPerft(const int depth)
     senjo::Output() << GetFEN();
   }
 
-  InitSearch();
+  InitSearch(COLOR(root->state), _startTime);
 
   const int d = std::min<int>(depth, MaxPlies);
   const uint64_t count = WhiteToMove() ? root->PerftSearchRoot<White>(d)
@@ -2676,9 +3660,31 @@ std::string Clunk::MyGo(const int depth,
     return std::string();
   }
 
-  // TODO
+  if (_debug) {
+    PrintBoard();
+    senjo::Output() << GetFEN();
+  }
 
-  return std::string();
+  InitSearch(COLOR(root->state), _startTime);
+
+  int d = std::min<int>(depth, MaxPlies);
+  if (d <= 0) {
+    d = MaxPlies;
+  }
+  std::string bestmove = (WhiteToMove() ? root->SearchRoot<White>(d)
+                                        : root->SearchRoot<Black>(d));
+
+  _totalStats += _stats;
+  if (_debug) {
+    senjo::Output() << "--- Stats";
+    senjo::Output() << _tt.GetStores() << " stores, "
+                    << _tt.GetHits() << " hits, "
+                    << _tt.GetCheckmates() << " checkmates, "
+                    << _tt.GetStalemates() << " stalemates";
+    _stats.Print();
+  }
+
+  return bestmove;
 }
 
 } // namespace clunk

@@ -30,8 +30,8 @@ namespace senjo
 
 //----------------------------------------------------------------------------
 #define SQR(x,y) (((y) * 16) + (x))
-#define IS_X(ch) (((ch) >= 'a') && ((ch) <= 'h'))
-#define IS_Y(ch) (((ch) >= '1') && ((ch) <= '8'))
+#define IS_X(ch) (((ch) >= 'a') & ((ch) <= 'h'))
+#define IS_Y(ch) (((ch) >= '1') & ((ch) <= '8'))
 #define TO_X(ch) ((ch) - 'a')
 #define TO_Y(ch) ((ch) - '1')
 
