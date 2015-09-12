@@ -25,14 +25,22 @@ enum Square {
 
 //-----------------------------------------------------------------------------
 enum Direction {
+  KnightMove1 = -33,
+  KnightMove2 = -31,
+  KnightMove3 = -18,
   SouthWest   = -17,
   South       = -16,
   SouthEast   = -15,
+  KnightMove4 = -14,
   West        =  -1,
   East        =   1,
+  KnightMove5 =  14,
   NorthWest   =  15,
   North       =  16,
-  NorthEast   =  17
+  NorthEast   =  17,
+  KnightMove6 =  18,
+  KnightMove7 =  31,
+  KnightMove8 =  33
 };
 
 //-----------------------------------------------------------------------------
@@ -68,8 +76,7 @@ enum PieceValue {
 
 //-----------------------------------------------------------------------------
 enum MoveType {
-  NoMove,
-  PawnMove,
+  PawnMove   = 1,
   PawnLung,
   PawnCap,
   KnightMove = Knight,

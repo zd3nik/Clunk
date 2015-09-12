@@ -12,41 +12,15 @@ namespace clunk
 {
 
 //----------------------------------------------------------------------------
+class Node;
+
+//----------------------------------------------------------------------------
 class Clunk : public senjo::ChessEngine
 {
 public:
   Clunk();
   virtual ~Clunk();
 
-  //--------------------------------------------------------------------------
-  // unchanging
-  //--------------------------------------------------------------------------
-  Clunk* parent;
-  Clunk* child;
-  int ply;
-
-  //--------------------------------------------------------------------------
-  // updated by Exec()
-  //--------------------------------------------------------------------------
-  int checkState;
-  int state;
-  int ep;
-  int rcount;
-  int mcount;
-  uint64_t pawnKey;
-  uint64_t pieceKey;
-  uint64_t positionKey;
-
-  //--------------------------------------------------------------------------
-  // updated by move generation and search
-  //--------------------------------------------------------------------------
-  int moveIndex;
-  int moveCount;
-  Move moves[MaxMoves];
-
-  //--------------------------------------------------------------------------
-  // senjo::ChessEngine members
-  //--------------------------------------------------------------------------
   bool IsInitialized() const;
   bool SetEngineOption(const std::string& name, const std::string& value);
   bool WhiteToMove() const;
@@ -74,9 +48,6 @@ public:
                 const size_t movelen = 0) const;
 
 protected:
-  //--------------------------------------------------------------------------
-  // senjo::ChessEngine members
-  //--------------------------------------------------------------------------
   uint64_t MyPerft(const int depth);
   std::string MyGo(const int depth,
                    const int movestogo = 0,
@@ -84,6 +55,10 @@ protected:
                    const uint64_t wtime = 0, const uint64_t winc = 0,
                    const uint64_t btime = 0, const uint64_t binc = 0,
                    std::string* ponder = NULL);
+
+private:
+  Node* root;
+  bool initialized;
 };
 
 } // namespace clunk
