@@ -103,13 +103,6 @@ enum StateBits {
 };
 
 //-----------------------------------------------------------------------------
-enum CheckState {
-  CheckUnknown,
-  IsInCheck,
-  NotInCheck
-};
-
-//-----------------------------------------------------------------------------
 enum {
   WhiteKingOffset   = 2,
   BlackKingOffset   = 3,
