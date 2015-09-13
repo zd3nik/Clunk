@@ -104,7 +104,7 @@ enum StateBits {
 
 //-----------------------------------------------------------------------------
 enum CheckState {
-  Unknown,
+  CheckUnknown,
   IsInCheck,
   NotInCheck
 };

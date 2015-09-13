@@ -909,6 +909,8 @@ struct Node
   uint64_t pawnKey;
   uint64_t pieceKey;
   uint64_t positionKey;
+  Move lastMove;
+  int standPat;
 
   //---------------------------------------------------------------------------
   // updated by move generation and search
@@ -921,10 +923,8 @@ struct Node
   // updated during search
   //---------------------------------------------------------------------------
   bool pruneOK;
-  int standPat;
   int depthChange;
   int pvCount;
-  Move lastMove;
   Move killer[2];
   Move pv[MaxPlies];
 
@@ -980,7 +980,7 @@ struct Node
     for (int y = 7; y >= 0; --y) {
       for (int x = 0; x < 8; ++x) {
         const int type = _board[SQR(x,y)]->type;
-        if ((type != 0) & (empty != 0)) {
+        if (type && empty) {
           *p++ = ('0' + empty);
           empty = 0;
         }
@@ -1062,6 +1062,7 @@ struct Node
     assert(_piece[2 + color].type == (color|King));
     assert(IS_SQUARE(_piece[2 + color].sqr));
     assert(_board[_piece[2 + color].sqr] == (_piece + 2 + color));
+    assert(!_piece[0].type);
     int from = _piece[2 + color].sqr;
     int attackers = 0;
     int squareCount = 0;
@@ -1196,10 +1197,14 @@ struct Node
 
     assert(attackers < 3);
     if (!attackers) {
+      assert((checkState == CheckUnknown) | (checkState == NotInCheck));
+      checkState = NotInCheck;
       return 0;
     }
 
-    assert(!_piece[0].type);
+    assert((checkState == CheckUnknown) | (checkState == IsInCheck));
+    checkState = IsInCheck;
+
     if (attackers == 1) {
       // get non-king moves that block or capture the piece giving check
       for (int z = 0; z < squareCount; ++z) {
@@ -1541,6 +1546,8 @@ struct Node
       return;
     }
 
+    assert(checkState == NotInCheck);
+
     int from;
     for (int i = 0; i < _pcount[color|Pawn]; ++i) {
       from = _piece[(color ? BlackPawnOffset : PawnOffset) + i].sqr;
@@ -1784,6 +1791,7 @@ struct Node
   template<Color color>
   void Exec(const Move& move, Node& dest) const {
     assert(ValidateMove<color>(move) == 0);
+    assert((checkState == IsInCheck) | (checkState == NotInCheck));
 
     _execs++;
 
@@ -1802,6 +1810,7 @@ struct Node
       ClearAttacksFrom(cap, to);
     }
 
+    dest.checkState = CheckUnknown;
     switch (move.Type()) {
     case PawnMove:
       if (promo) {
@@ -1959,6 +1968,10 @@ struct Node
                         _HASH[0][dest.state & 0x1F] ^
                         _HASH[0][dest.ep]);
 
+    dest.lastMove = move;
+    dest.standPat = (_material[!color] - _material[color]);
+    assert(standPat > (ply - Infinity));
+
     if (!cap && _atkd[to]) {
       TruncateAttacks(to, from);
     }
@@ -1972,6 +1985,11 @@ struct Node
     }
 
 //    assert(VerifyAttacks(true));
+//    if (AttackedBy<!color>(_piece[2 + color].sqr)) {
+//      senjo::Output() << move.ToString();
+//      PrintBoard();
+//      assert(false);
+//    }
   }
 
   //---------------------------------------------------------------------------
@@ -2149,16 +2167,23 @@ struct Node
 
     _stats.nullMoves++;
 
-    dest.lastMove.Clear();
-    dest.mcount = mcount;
-    dest.rcount = rcount;
+    dest.checkState = NotInCheck;
     dest.state = (state ^ 1);
     dest.ep = None;
-    dest.checkState = CheckState::NotInCheck;
+    dest.rcount = rcount;
+    dest.mcount = mcount;
+    dest.pawnKey = pawnKey;
     dest.pieceKey = pieceKey;
-    dest.positionKey = (pieceKey ^
+    dest.positionKey = (dest.pawnKey ^
+                        dest.pieceKey ^
                         _HASH[0][dest.state & 0x1F] ^
-                        _HASH[0][None]);
+                        _HASH[0][dest.ep]);
+
+    dest.lastMove.Clear();
+    dest.standPat = (_material[!color] - _material[color]);
+    assert(standPat > (ply - Infinity));
+
+//    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
@@ -2266,14 +2291,14 @@ struct Node
 
   //---------------------------------------------------------------------------
   inline bool IsDraw() const {
-    return ((state & Draw) | (rcount >= 100) | _seen.count(positionKey));
+    return (((state & Draw) | (rcount >= 100)) || _seen.count(positionKey));
   }
 
   //---------------------------------------------------------------------------
   template<Color color>
   inline bool InCheck() {
     assert(color == COLOR(state));
-    if (checkState == CheckState::Unknown) {
+    if (checkState == CheckUnknown) {
       if (AttackedBy<!color>(_piece[2 + color].sqr)) {
         checkState = IsInCheck;
       }
@@ -2333,6 +2358,7 @@ struct Node
       case HashEntry::Checkmate: return (ply - Infinity);
       case HashEntry::Stalemate: return _drawScore[color];
       case HashEntry::UpperBound:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
         if (entry->score <= alpha) {
@@ -2342,6 +2368,7 @@ struct Node
         }
         break;
       case HashEntry::ExactScore:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
         pv[0] = firstMove;
@@ -2352,6 +2379,7 @@ struct Node
         }
         return entry->score;
       case HashEntry::LowerBound:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
         if (entry->score >= beta) {
@@ -2384,7 +2412,7 @@ struct Node
     if (firstMove.Type()) {
       _stats.qexecs++;
       Exec<color>(firstMove, *child);
-      if (!check & !firstMove.IsCapOrPromo() & !child->InCheck<!color>()) {
+      if (!(check | firstMove.IsCapOrPromo()) && !child->InCheck<!color>()) {
         Undo<color>(firstMove);
       }
       else {
@@ -2435,10 +2463,16 @@ struct Node
         continue;
       }
 
+      // TODO remove this once QSearchMoveGen is complete
+      if (!check && !move->IsCapOrPromo()) {
+        continue;
+      }
+
       _stats.qexecs++;
       Exec<color>(*move, *child);
-      if (!check & (depth < 0) & !move->Promo() &&
-          ((standPat + ValueOf(move->Cap()) + 900) <= alpha) & // TODO adjust delta
+
+      if (!check && (depth < 0) && !move->Promo() &&
+          ((standPat + ValueOf(move->Cap()) + 900) <= alpha) && // TODO adjust delta
           !child->InCheck<!color>())
       {
         _stats.deltaCount++;
@@ -2543,6 +2577,7 @@ struct Node
       case HashEntry::Checkmate: return (ply - Infinity);
       case HashEntry::Stalemate: return _drawScore[color];
       case HashEntry::UpperBound:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
         if ((!pvNode | entry->HasPvFlag()) &
@@ -2557,6 +2592,7 @@ struct Node
         }
         break;
       case HashEntry::ExactScore:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(entry->HasPvFlag());
         assert(ValidateMove<color>(firstMove) == 0);
@@ -2576,6 +2612,7 @@ struct Node
         }
         break;
       case HashEntry::LowerBound:
+        assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
         if ((!pvNode | entry->HasPvFlag()) &
@@ -2611,7 +2648,7 @@ struct Node
     }
 
     // razoring (fail low pruning)
-    if (((depth < 4) & (alpha < WinningScore) & !parent->InCheck<!color>()) &&
+    if (((depth < 4) & (alpha < WinningScore)) && !parent->InCheck<!color>() &&
         // TODO && no pawns on 2nd/7th rank
         ((eval + RazorDelta(depth)) <= alpha))
     {
@@ -2639,7 +2676,7 @@ struct Node
     }
 
     // futility pruning (static null move pruning)
-    if ((cutNode & (depth < 7)) && // TODO try different max depths
+    if ((cutNode & (depth < 7) & (abs(beta) < WinningScore)) && // TODO try different max depths
         ((eval - FutilityDelta(depth)) >= beta))
     {
       _stats.futility++;
@@ -2668,37 +2705,38 @@ struct Node
           return (standPat >= beta) ? standPat : beta; // do not return eval
         }
       }
-      else if (cutNode & (depth > 2) & !parent->InCheck<!color>() &
-               (eval >= -parent->standPat) & !lastMove.IsCapOrPromo() &
-               !((lastMove.Type() == PawnMove) &
-                 (YC(lastMove.To()) == (color ? 6 : 1))))
-      {
-        // null move reductions
-        _stats.nmrCandidates++;
-        ExecNullMove<color>(*child);
-        eval = -child->QSearch<!color>(-standPat, (1 - standPat), 0);
-        if (_stop) {
-          return beta;
-        }
-        if (eval >= standPat) {
-          // last move looks pretty quiet and we're already expecting
-          // to be able to refute it (this is a cutNode) so we're betting we
-          // can reduce depth and still refute it.  if not, we spend less time
-          // determining that the last move is actually pretty good.
-          // but this can backfire if:
-          // 1) reduced depth fails low here (fails high in parent)
-          // 2) parent failes low on re-search at full depth
-          // example stats: 4896 nmr candidates, 3254 reduced (66.4624%), 114 backfires (3.50338%)
-//          senjo::Output() << parent->moveIndex << ", " << lastMove.ToString()
-//                          << ", " << -parent->standPat
-//                          << ", " << eval
-//                          << ", " << standPat;
-//          PrintBoard();
-          _stats.nmReductions++;
-          depthChange -= (1 + (eval >= -parent->standPat));
-          depth -= (1 + (eval >= -parent->standPat));
-        }
-      }
+//      else if ((cutNode & (depth > 2) & (eval >= -parent->standPat) &
+//                !lastMove.IsCapOrPromo()) &
+//               !((lastMove.Type() == PawnMove) &
+//                 (YC(lastMove.To()) == (color ? 6 : 1))) &&
+//               !parent->InCheck<!color>())
+//      {
+//        // null move reductions
+//        _stats.nmrCandidates++;
+//        ExecNullMove<color>(*child);
+//        eval = -child->QSearch<!color>(-standPat, (1 - standPat), 0);
+//        if (_stop) {
+//          return beta;
+//        }
+//        if (eval >= standPat) {
+//          // last move looks pretty quiet and we're already expecting
+//          // to be able to refute it (this is a cutNode) so we're betting we
+//          // can reduce depth and still refute it.  if not, we spend less time
+//          // determining that the last move is actually pretty good.
+//          // but this can backfire if:
+//          // 1) reduced depth fails low here (fails high in parent)
+//          // 2) parent failes low on re-search at full depth
+//          // example stats: 4896 nmr candidates, 3254 reduced (66.4624%), 114 backfires (3.50338%)
+////          senjo::Output() << parent->moveIndex << ", " << lastMove.ToString()
+////                          << ", " << -parent->standPat
+////                          << ", " << eval
+////                          << ", " << standPat;
+////          PrintBoard();
+//          _stats.nmReductions++;
+//          depthChange -= (1 + (eval >= -parent->standPat));
+//          depth -= (1 + (eval >= -parent->standPat));
+//        }
+//      }
     }
     pruneOK = false;
 
@@ -3003,12 +3041,11 @@ search_main:
                ? -child->Search<PV, !color>(-beta, -alpha, (_depth - 1), false)
                : -child->Search<NonPV, !color>(-beta, -alpha, (_depth - 1), true))
             : -child->QSearch<!color>(-beta, -alpha, 0);
-        assert(move->GetScore() > -Infinity);
-        assert(move->GetScore() < Infinity);
         if (_stop) {
           Undo<color>(*move);
           break;
         }
+        assert(abs(move->GetScore()) < Infinity);
 
         // re-search to get real score?
         if ((move->GetScore() >= beta) |
@@ -3226,7 +3263,7 @@ const char* Clunk::SetPosition(const char* fen) {
 
   _board[None] = _EMPTY;
 
-  root->checkState = CheckState::Unknown;
+  root->checkState = CheckUnknown;
   root->state = 0;
   root->ep = None;
   root->rcount = 0;
@@ -3480,16 +3517,16 @@ const char* Clunk::SetPosition(const char* fen) {
     }
   }
 
-  NextSpace(p);
-  NextWord(p);
+  p = NextSpace(p);
+  p = NextWord(p);
   if (isdigit(*p)) {
     while (*p && isdigit(*p)) {
       root->rcount = ((root->rcount * 10) + (*p++ - '0'));
     }
+    p = NextSpace(p);
+    p = NextWord(p);
   }
 
-  NextSpace(p);
-  NextWord(p);
   if (isdigit(*p)) {
     while (*p && isdigit(*p)) {
       root->mcount = ((root->mcount * 10) + (*p++ - '0'));
@@ -3497,10 +3534,9 @@ const char* Clunk::SetPosition(const char* fen) {
     if (root->mcount) {
       root->mcount = (((root->mcount - 1) * 2) + COLOR(root->state));
     }
+    p = NextSpace(p);
+    p = NextWord(p);
   }
-
-  NextSpace(p);
-  NextWord(p);
 
   root->positionKey = (root->pawnKey ^
                        root->pieceKey ^

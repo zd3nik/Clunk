@@ -37,7 +37,7 @@ public:
       score(static_cast<int32_t>(score))
   {
     assert(abs(score) <= Infinity);
-    assert(IsValid());
+    assert(!bits || IsValid());
   }
 
   //---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ public:
       score(other.score)
   {
     assert(abs(score) <= Infinity);
-    assert(IsValid());
+    assert(!bits || IsValid());
   }
 
   //---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ public:
     assert(abs(other.score) <= Infinity);
     bits = other.bits;
     score = other.score;
-    assert(IsValid());
+    assert(!bits || IsValid());
     return *this;
   }
 
@@ -69,7 +69,7 @@ public:
     assert(abs(score) <= Infinity);
     this->bits = bits;
     this->score = static_cast<int32_t>(score);
-    assert(IsValid());
+    assert(!bits || IsValid());
   }
 
   //---------------------------------------------------------------------------
@@ -190,16 +190,13 @@ public:
 
   //---------------------------------------------------------------------------
   bool IsValid() const {
-    if (bits) {
-      return (IS_MTYPE(Type()) &
-              IS_SQUARE(To()) &
-              IS_SQUARE(From()) &
-              (To() != From()) &
-              ((!Cap()) | IS_CAP(Cap())) &
-              ((!Promo()) || IS_PROMO(Promo())) &
-              (abs(score) <= Infinity));
-    }
-    return true;
+    return (IS_MTYPE(Type()) &
+            IS_SQUARE(To()) &
+            IS_SQUARE(From()) &
+            (To() != From()) &
+            ((!Cap()) | IS_CAP(Cap())) &
+            ((!Promo()) || IS_PROMO(Promo())) &
+            (abs(score) <= Infinity));
   }
 
 private:
