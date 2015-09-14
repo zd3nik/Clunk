@@ -1554,9 +1554,9 @@ struct Node
       if (!cap && _pcount[color|Pawn]) {
         from = (to + (color ? North : South));
         if (IS_SQUARE(from)) {
-          const int pinDir = GetPinDir(color, from);
-          if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
-            if (_board[from]->type == (color|Pawn)) {
+          if (_board[from]->type == (color|Pawn)) {
+            const int pinDir = GetPinDir(color, from);
+            if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
               if (YC(to) == (color ? 0 : 7)) {
                 AddMove(PawnMove, from, to, 0, (color|Queen));
                 AddMove(PawnMove, from, to, 0, (color|Rook));
@@ -1567,10 +1567,13 @@ struct Node
                 AddMove(PawnMove, from, to);
               }
             }
-            else if (!_board[from]->type && (YC(to) == (color ? 4 : 3))) {
-              from += (color ? North : South);
-              assert(IS_SQUARE(from));
-              if (_board[from]->type == (color|Pawn)) {
+          }
+          else if (!_board[from]->type && (YC(to) == (color ? 4 : 3))) {
+            from += (color ? North : South);
+            assert(IS_SQUARE(from));
+            if (_board[from]->type == (color|Pawn)) {
+              const int pinDir = GetPinDir(color, from);
+              if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
                 AddMove(PawnLung, from, to);
               }
             }
