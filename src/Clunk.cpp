@@ -1171,7 +1171,7 @@ struct Node
           assert(_board[(mvs & 0xFF) - 1]->sqr == ((mvs & 0xFF) - 1));
           assert(IS_SLIDER(_board[(mvs & 0xFF) - 1]->type));
           if (COLOR(_board[(mvs & 0xFF) - 1]->type) != color) {
-            assert(!(chkrs & ~0xFF00));
+            assert(!(chkrs & 0xFF00));
             chkrs = ((chkrs << 8) | (mvs & 0xFF));
           }
         }
@@ -1326,21 +1326,21 @@ struct Node
     assert(_board[from] != _EMPTY);
     assert(_board[from]->type == (color|Knight));
     assert(_board[from]->sqr == from);
-    const int pinDir = GetPinDir(color, from);
+    if (GetPinDir(color, from)) {
+      return;
+    }
     for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
       const int to = ((mvs & 0xFF) - 1);
       assert(IS_SQUARE(to));
       assert(to != from);
-      if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
-        const int cap = _board[to]->type;
-        assert(cap || (_board[to] == _EMPTY));
-        if (!cap) {
-          AddMove(KnightMove, from, to);
-        }
-        else if (COLOR(cap) != color) {
-          AddMove(KnightMove, from, to, cap);
-        }
+      const int cap = _board[to]->type;
+      assert(cap || (_board[to] == _EMPTY));
+      if (!cap) {
+        AddMove(KnightMove, from, to);
+      }
+      else if (COLOR(cap) != color) {
+        AddMove(KnightMove, from, to, cap);
       }
     }
   }
@@ -1448,9 +1448,11 @@ struct Node
     assert(IS_CAP(_board[sqr1]->type) && (COLOR(_board[sqr1]->type) != color));
     assert(IS_CAP(_board[sqr2]->type) && (COLOR(_board[sqr2]->type) != color));
 
-    const int dir1 = abs(Direction(from, sqr1));
-    const int dir2 = abs(Direction(from, sqr2));
-    assert(IS_DIR(dir1) & IS_DIR(dir2));
+    const int dir1 = ((_board[sqr1]->type >= Bishop)
+                      ? abs(Direction(from, sqr1)) : 0);
+    const int dir2 = ((_board[sqr2]->type >= Bishop)
+                      ? abs(Direction(from, sqr2)) : 0);
+    assert((!dir1 || IS_DIR(dir1)) && (!dir2 || IS_DIR(dir2)));
 
     for (uint64_t mvs = _queenKing[from + 8]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
@@ -1494,18 +1496,24 @@ struct Node
       if ((cap == ((!color)|Pawn)) & (ep == (to + (color ? South : North)))) {
         if (XC(ep) > 0) {
           from = (ep + (color ? NorthWest : SouthWest));
-          if ((_board[from]->type == (color|Pawn)) &&
-              !EpPinned<color>(from, to))
-          {
-            AddMove(PawnCap, from, ep);
+          if (_board[from]->type == (color|Pawn)) {
+            const int pinDir = GetPinDir(color, from);
+            if ((!pinDir || (abs(Direction(from, to)) == pinDir)) &&
+                !EpPinned<color>(from, to))
+            {
+              AddMove(PawnCap, from, ep);
+            }
           }
         }
         if (XC(ep) < 7) {
           from = (ep + (color ? NorthEast : SouthEast));
-          if ((_board[from]->type == (color|Pawn)) &&
-              !EpPinned<color>(from, to))
-          {
-            AddMove(PawnCap, from, ep);
+          if (_board[from]->type == (color|Pawn)) {
+            const int pinDir = GetPinDir(color, from);
+            if ((!pinDir || (abs(Direction(from, to)) == pinDir)) &&
+                !EpPinned<color>(from, to))
+            {
+              AddMove(PawnCap, from, ep);
+            }
           }
         }
       }
@@ -1516,15 +1524,18 @@ struct Node
         assert(Distance(from, to) == 1);
         assert(IS_DIAG(Direction(to, from)));
         if (_board[from]->type == (color|Pawn)) {
-          if (YC(to) == (color ? 0 : 7)) {
-            assert(cap >= Knight);
-            AddMove(PawnCap, from, to, cap, (color|Queen));
-            AddMove(PawnCap, from, to, cap, (color|Rook));
-            AddMove(PawnCap, from, to, cap, (color|Bishop));
-            AddMove(PawnCap, from, to, cap, (color|Knight));
-          }
-          else {
-            AddMove(PawnCap, from, to, cap);
+          const int pinDir = GetPinDir(color, from);
+          if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+            if (YC(to) == (color ? 0 : 7)) {
+              assert(cap >= Knight);
+              AddMove(PawnCap, from, to, cap, (color|Queen));
+              AddMove(PawnCap, from, to, cap, (color|Rook));
+              AddMove(PawnCap, from, to, cap, (color|Bishop));
+              AddMove(PawnCap, from, to, cap, (color|Knight));
+            }
+            else {
+              AddMove(PawnCap, from, to, cap);
+            }
           }
         }
       }
@@ -1543,22 +1554,25 @@ struct Node
       if (!cap && _pcount[color|Pawn]) {
         from = (to + (color ? North : South));
         if (IS_SQUARE(from)) {
-          if (_board[from]->type == (color|Pawn)) {
-            if (YC(to) == (color ? 0 : 7)) {
-              AddMove(PawnMove, from, to, 0, (color|Queen));
-              AddMove(PawnMove, from, to, 0, (color|Rook));
-              AddMove(PawnMove, from, to, 0, (color|Bishop));
-              AddMove(PawnMove, from, to, 0, (color|Knight));
-            }
-            else {
-              AddMove(PawnMove, from, to);
-            }
-          }
-          else if (!_board[from]->type && (YC(to) == (color ? 4 : 3))) {
-            from += (color ? North : South);
-            assert(IS_SQUARE(from));
+          const int pinDir = GetPinDir(color, from);
+          if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
             if (_board[from]->type == (color|Pawn)) {
-              AddMove(PawnLung, from, to);
+              if (YC(to) == (color ? 0 : 7)) {
+                AddMove(PawnMove, from, to, 0, (color|Queen));
+                AddMove(PawnMove, from, to, 0, (color|Rook));
+                AddMove(PawnMove, from, to, 0, (color|Bishop));
+                AddMove(PawnMove, from, to, 0, (color|Knight));
+              }
+              else {
+                AddMove(PawnMove, from, to);
+              }
+            }
+            else if (!_board[from]->type && (YC(to) == (color ? 4 : 3))) {
+              from += (color ? North : South);
+              assert(IS_SQUARE(from));
+              if (_board[from]->type == (color|Pawn)) {
+                AddMove(PawnLung, from, to);
+              }
             }
           }
         }
@@ -1571,7 +1585,9 @@ struct Node
           from = ((mvs & 0xFF) - 1);
           assert(IS_SQUARE(from));
           assert(from != to);
-          if (_board[from]->type == (color|Knight)) {
+          if ((_board[from]->type == (color|Knight)) &&
+              !GetPinDir(color, from))
+          {
             AddMove(KnightMove, from, to, cap);
           }
         }
@@ -1588,7 +1604,10 @@ struct Node
             const int type = _board[from]->type;
             assert(IS_SLIDER(type));
             if (COLOR(type) == color) {
-              AddMove(static_cast<MoveType>(type & ~1), from, to, cap);
+              const int pinDir = GetPinDir(color, from);
+              if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+                AddMove(static_cast<MoveType>(type & ~1), from, to, cap);
+              }
             }
           }
         }
