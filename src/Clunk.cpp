@@ -602,17 +602,15 @@ void UpdateKingDirs(const int from, const int to) {
   assert(IS_SQUARE(from));
   assert(IS_SQUARE(to));
   assert(from != to);
-  assert(_board[from] == _EMPTY);
   assert(_board[to] != _EMPTY);
   int dir = _kingDir[from + (color * 8)];
-  if (dir) {
+  if (dir && (_board[from] == _EMPTY)) {
     assert(IS_DIR(dir));
     assert(Direction(from, _KING[color]->sqr) == dir);
     if (Direction(from, to) != dir) {
       for (int sqr = (from - dir); IS_SQUARE(sqr); sqr -= dir) {
         assert(Direction(from, sqr) == -dir);
-        assert(!_kingDir[to + (color * 8)]);
-        _kingDir[to + (color * 8)] = dir;
+        _kingDir[sqr + (color * 8)] = dir;
         if (sqr == to) {
           return;
         }
@@ -628,8 +626,7 @@ void UpdateKingDirs(const int from, const int to) {
     for (int sqr = (to - dir); IS_SQUARE(sqr) && _kingDir[sqr + (color * 8)];
          sqr -= dir)
     {
-      assert(Direction(from, sqr) == -dir);
-      assert((_board[sqr] == _EMPTY) || IS_SQUARE(sqr - dir));
+      assert(Direction(to, sqr) == -dir);
       _kingDir[sqr + (color * 8)] = 0;
     }
   }
@@ -814,8 +811,13 @@ bool AttackedBy(const int sqr) {
 }
 
 //-----------------------------------------------------------------------------
-bool VerifyAttacksTo(const int to, const bool do_assert) {
+bool VerifyAttacksTo(const int to, const bool do_assert, char kdir[128]) {
   uint64_t atk = 0;
+  const bool king = (_board[to]->type >= King);
+  const int idx = (8 * COLOR(_board[to]->type));
+  if (king) {
+    assert(!_kingDir[to + idx]);
+  }
   for (uint64_t mvs = _queenKing[to]; mvs; mvs >>= 8) {
     assert(mvs & 0xFF);
     const int end = ((mvs & 0xFF) - 1);
@@ -824,6 +826,9 @@ bool VerifyAttacksTo(const int to, const bool do_assert) {
     for (int from = (to - dir);; from -= dir) {
       assert(IS_SQUARE(from));
       assert(Direction(from, to) == dir);
+      if (king) {
+        kdir[from + idx] = dir;
+      }
       if (_board[from] >= _FIRST_SLIDER) {
         const int pc = _board[from]->type;
         assert(IS_SLIDER(pc));
@@ -848,13 +853,20 @@ bool VerifyAttacksTo(const int to, const bool do_assert) {
 
 //-----------------------------------------------------------------------------
 bool VerifyAttacks(const bool do_assert) {
+  char kdir[128] = {0};
   for (int sqr = A1; sqr <= H8; ++sqr) {
     if (BAD_SQR(sqr)) {
       sqr += 7;
     }
-    else if (!VerifyAttacksTo(sqr, do_assert)) {
+    else if (!VerifyAttacksTo(sqr, do_assert, kdir)) {
       return false;
     }
+  }
+  if (memcmp(kdir, _kingDir, sizeof(kdir))) {
+    if (do_assert) {
+      assert(false);
+    }
+    return false;
   }
   return true;
 }
@@ -1166,8 +1178,8 @@ struct Node
       }
     }
 
-    if (_pcount[color|Knight]) {
-      assert(_pcount[color|Knight] > 0);
+    if (_pcount[(!color)|Knight]) {
+      assert(_pcount[(!color)|Knight] > 0);
       for (uint64_t mvs = _knightMoves[sqr]; mvs; mvs >>= 8) {
         assert(mvs & 0xFF);
         assert(IS_SQUARE((mvs & 0xFF) - 1));
@@ -1193,7 +1205,7 @@ struct Node
       else if (_board[from]->type == ((!color)|Pawn)) {
         assert(_board[from]->sqr == from);
         if (color) {
-          switch (Direction(sqr, from)) {
+          switch (Direction(from, sqr)) {
           case NorthWest: case NorthEast:
             assert(!(chkrs & 0xFF00));
             chkrs = ((chkrs << 8) | (mvs & 0xFF));
@@ -1201,7 +1213,7 @@ struct Node
           }
         }
         else {
-          switch (Direction(sqr, from)) {
+          switch (Direction(from, sqr)) {
           case SouthWest: case SouthEast:
             assert(!(chkrs & 0xFF00));
             chkrs = ((chkrs << 8) | (mvs & 0xFF));
@@ -1215,7 +1227,7 @@ struct Node
   //---------------------------------------------------------------------------
   inline int GetPinDir(const Color color, const int from) {
     assert(IS_SQUARE(from));
-    const int kdir = _kingDir[from];
+    const int kdir = _kingDir[from + (color * 8)];
     if (kdir && _atkd[from]) {
       const int tmp = ((_atkd[from] >> DirShift(kdir)) & 0xFF);
       if (tmp) {
@@ -1474,12 +1486,7 @@ struct Node
 
     int cap = _board[to]->type;
     assert(IS_CAP(cap) & (COLOR(cap) != color));
-
-    const int king = _KING[color]->sqr;
-    assert(IS_SQUARE(king));
-
-    const int dir = Direction(to, king);
-    assert(IS_DIR(dir));
+    const bool slider = (cap >= Bishop);
 
     uint64_t mvs;
     if (_pcount[color|Pawn]) {
@@ -1502,7 +1509,7 @@ struct Node
           }
         }
       }
-      for (mvs = _pawnCaps[to & (8 * !color)]; mvs; mvs >>= 8) {
+      for (mvs = _pawnCaps[to + (8 * !color)]; mvs; mvs >>= 8) {
         assert(mvs & 0xFF);
         from = ((mvs & 0xFF) - 1);
         assert(IS_SQUARE(from));
@@ -1522,6 +1529,12 @@ struct Node
         }
       }
     }
+
+    const int king = _KING[color]->sqr;
+    assert(IS_SQUARE(king));
+
+    const int dir = Direction(to, king);
+    assert(!slider || IS_DIR(dir));
 
     do {
       assert(IS_SQUARE(to));
@@ -1581,10 +1594,13 @@ struct Node
         }
       }
 
+      if (cap && (cap < Bishop)) {
+        break;
+      }
       to += dir;
       cap = 0;
     } while (to != king);
-    assert(to == king);
+    assert((to == king) || (cap && (cap < Bishop)));
 
     for (mvs = _queenKing[king + 8]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
@@ -1592,7 +1608,9 @@ struct Node
       assert(IS_SQUARE(to));
       assert(Distance(king, to) == 1);
       assert(IS_DIR(Direction(king, to)));
-      if ((to != (chkrs - 1)) && (abs(Direction(king, to) == abs(dir)))) {
+      if ((slider & (to != (chkrs - 1))) &&
+          (abs(Direction(king, to)) == abs(dir)))
+      {
         continue;
       }
       if (AttackedBy<!color>(to)) {
@@ -2141,7 +2159,7 @@ struct Node
       assert(_board[to]->sqr == to);
       AddAttacksFrom(_board[to]->type, to);
     }
-//    assert(VerifyAttacks(true));
+    assert(VerifyAttacks(true));
 
     dest.FindCheckers<!color>();
   }
@@ -2224,6 +2242,8 @@ struct Node
         if (_atkd[sqr]) {
           TruncateAttacks(sqr, from);
         }
+        UpdateKingDirs<White>(to, sqr);
+        UpdateKingDirs<Black>(to, sqr);
       }
       UpdateKingDirs<White>(to, from);
       UpdateKingDirs<Black>(to, from);
@@ -2348,7 +2368,7 @@ struct Node
       UpdateKingDirs<Black>(to, from);
     }
 
-//    assert(VerifyAttacks(true));
+    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
@@ -2376,7 +2396,7 @@ struct Node
     assert(standPat > (ply - Infinity));
     dest.chkrs = 0;
 
-//    assert(VerifyAttacks(true));
+    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
