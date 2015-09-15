@@ -648,9 +648,47 @@ inline void AddAttack(const int from, const int to, const int dir) {
 }
 
 //-----------------------------------------------------------------------------
+inline void AddSlide(const int from, const int to, const int dir) {
+  assert(IS_SQUARE(from));
+  assert(IS_SQUARE(to));
+  assert(from != to);
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(IS_SLIDER(_board[from]->type));
+  assert(_board[from]->sqr == from);
+  assert(Direction(from, to) == dir);
+  assert(!(_atkd[from + 8] & (0xFFULL << DirShift(dir))) ||
+         ((_atkd[from + 8] & (0xFFULL << DirShift(dir))) ==
+          (uint64_t(to + 1) << DirShift(dir))));
+  _atkd[from + 8] |= (uint64_t(to + 1) << DirShift(dir));
+}
+
+//-----------------------------------------------------------------------------
+inline void SetSlide(const int from, const int to, const int dir) {
+  assert(IS_SQUARE(from));
+  assert(IS_SQUARE(to));
+  assert(from != to);
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(IS_SLIDER(_board[from]->type));
+  assert(_board[from]->sqr == from);
+  assert(Direction(from, to) == dir);
+  const int shift = DirShift(dir);
+  _atkd[from + 8] = ((_atkd[from + 8] & ~(0xFFULL << shift)) |
+      (uint64_t(to + 1) << shift));
+}
+
+//-----------------------------------------------------------------------------
 inline void ClearAttack(const int to, const int dir) {
   assert(IS_SQUARE(to));
   _atkd[to] &= ~(0xFFULL << DirShift(dir));
+}
+
+//-----------------------------------------------------------------------------
+inline void ClearSlide(const int from, const int dir) {
+  assert(IS_SQUARE(from));
+  assert(_board[from] >= _FIRST_SLIDER);
+  assert(IS_SLIDER(_board[from]->type));
+  assert(_board[from]->sqr == from);
+  _atkd[from + 8] &= ~(0xFFULL << DirShift(dir));
 }
 
 //-----------------------------------------------------------------------------
@@ -673,6 +711,7 @@ void AddAttacksFrom(const int pc, const int from) {
       assert(Direction(from, to) == dir);
       AddAttack(from, to, dir);
       if ((to == end) || (_board[to] != _EMPTY)) {
+        AddSlide(from, to, dir);
         break;
       }
     }
@@ -694,6 +733,7 @@ void ClearAttacksFrom(const int pc, const int from) {
     const int end = ((mvs & 0xFF) - 1);
     const int dir = Direction(from, end);
     assert(IS_DIR(dir));
+    ClearSlide(from, dir);
     for (int to = (from + dir);; to += dir) {
       assert(IS_SQUARE(to));
       assert(Direction(from, to) == dir);
@@ -716,6 +756,7 @@ void TruncateAttacks(const int to, const int stop) {
       assert(IS_SLIDER(_board[from]->type));
       assert(_board[from]->sqr == from);
       const int dir = Direction(from, to);
+      SetSlide(from, to, dir);
       for (int ato = (to + dir); IS_SQUARE(ato); ato += dir) {
         assert(Direction(from, ato) == dir);
         ClearAttack(ato, dir);
@@ -740,12 +781,16 @@ void ExtendAttacks(const int to) {
       assert(_board[from]->sqr == from);
       const int dir = Direction(from, to);
       assert(IS_DIR(dir));
+      int end = to;
       for (int ato = (to + dir); IS_SQUARE(ato); ato += dir) {
         assert(Direction(from, ato) == dir);
-        AddAttack(from, ato, dir);
+        AddAttack(from, (end = ato), dir);
         if (_board[ato] != _EMPTY) {
           break;
         }
+      }
+      if (end != to) {
+        SetSlide(from, end, dir);
       }
     }
   }
@@ -852,14 +897,59 @@ bool VerifyAttacksTo(const int to, const bool do_assert, char kdir[128]) {
 }
 
 //-----------------------------------------------------------------------------
+bool VerifySlide(uint64_t mvs, const int from, const bool do_assert) {
+  uint64_t slide = 0;
+  while (mvs) {
+    assert(mvs & 0xFF);
+    const int end = ((mvs & 0xFF) - 1);
+    const int dir = Direction(from, end);
+    assert(IS_DIR(dir));
+    assert(!(slide & (0xFFULL << DirShift(dir))));
+    for (int to = (from + dir);; to += dir) {
+      assert(IS_SQUARE(to));
+      assert(Direction(from, to) == dir);
+      if ((to == end) || (_board[to] != _EMPTY)) {
+        slide |= (uint64_t(to + 1) << DirShift(dir));
+        break;
+      }
+    }
+    assert(slide & (0xFFULL << DirShift(dir)));
+    mvs >>= 8;
+  }
+  if (do_assert) {
+    assert(slide == _atkd[from + 8]);
+  }
+  return (slide == _atkd[from + 8]);
+}
+
+//-----------------------------------------------------------------------------
 bool VerifyAttacks(const bool do_assert) {
   char kdir[128] = {0};
   for (int sqr = A1; sqr <= H8; ++sqr) {
     if (BAD_SQR(sqr)) {
       sqr += 7;
     }
-    else if (!VerifyAttacksTo(sqr, do_assert, kdir)) {
-      return false;
+    else {
+      if (!VerifyAttacksTo(sqr, do_assert, kdir)) {
+        return false;
+      }
+      switch (Black|_board[sqr]->type) {
+      case (Black|Bishop):
+        if (!VerifySlide(_bishopRook[sqr], sqr, do_assert)) {
+          return false;
+        }
+        break;
+      case (Black|Rook):
+        if (!VerifySlide(_bishopRook[sqr + 8], sqr, do_assert)) {
+          return false;
+        }
+        break;
+      case (Black|Queen):
+        if (!VerifySlide(_queenKing[sqr], sqr, do_assert)) {
+          return false;
+        }
+        break;
+      }
     }
   }
   if (memcmp(kdir, _kingDir, sizeof(kdir))) {
@@ -2181,7 +2271,7 @@ struct Node
       assert(_board[to]->sqr == to);
       AddAttacksFrom(_board[to]->type, to);
     }
-    assert(VerifyAttacks(true));
+//    assert(VerifyAttacks(true));
 
     dest.FindCheckers<!color>();
   }
@@ -2390,7 +2480,7 @@ struct Node
       UpdateKingDirs<Black>(to, from);
     }
 
-    assert(VerifyAttacks(true));
+//    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
@@ -2418,7 +2508,7 @@ struct Node
     assert(standPat > (ply - Infinity));
     dest.chkrs = 0;
 
-    assert(VerifyAttacks(true));
+//    assert(VerifyAttacks(true));
   }
 
   //---------------------------------------------------------------------------
