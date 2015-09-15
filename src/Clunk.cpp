@@ -81,9 +81,6 @@ int                _depth = 0;
 int                _seldepth = 0;
 int                _movenum = 0;
 int                _drawScore[2] = {0};
-uint64_t           _execs = 0;
-uint64_t           _nodes = 0;
-uint64_t           _qnodes = 0;
 uint64_t           _startTime = 0;
 char               _hist[0x1000] = {0};
 std::string        _currmove;
@@ -97,9 +94,6 @@ void InitSearch(const Color colorToMove, const uint64_t startTime) {
   _depth     = 0;
   _seldepth  = 0;
   _movenum   = 0;
-  _execs     = 0;
-  _nodes     = 0;
-  _qnodes    = 0;
   _startTime = startTime;
 
   _currmove.clear();
@@ -1347,7 +1341,7 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
-  template<Color color>
+  template<Color color, bool qsearch>
   void GetPawnMoves(const int from) {
     assert(!chkrs);
     assert(IS_SQUARE(from));
@@ -1385,24 +1379,26 @@ struct Node
         }
       }
     }
-    to = (from + (color ? South : North));
-    if (pinDir && (abs(Direction(from, to)) != pinDir)) {
-      return;
-    }
-    if (_board[to] == _EMPTY) {
-      if (YC(to) == (color ? 0 : 7)) {
-        AddMove(PawnMove, from, to, 0, (color|Queen));
-        AddMove(PawnMove, from, to, 0, (color|Rook));
-        AddMove(PawnMove, from, to, 0, (color|Bishop));
-        AddMove(PawnMove, from, to, 0, (color|Knight));
+    if (!qsearch || (YC(from) == (color ? 1 : 6))) {
+      to = (from + (color ? South : North));
+      if (pinDir && (abs(Direction(from, to)) != pinDir)) {
+        return;
       }
-      else {
-        AddMove(PawnMove, from, to);
-        if (YC(from) == (color ? 6 : 1)) {
-          to += (color ? South : North);
-          assert(IS_SQUARE(to));
-          if (_board[to] == _EMPTY) {
-            AddMove(PawnLung, from, to);
+      if (_board[to] == _EMPTY) {
+        if (qsearch || (YC(to) == (color ? 0 : 7))) {
+          AddMove(PawnMove, from, to, 0, (color|Queen));
+          AddMove(PawnMove, from, to, 0, (color|Rook));
+          AddMove(PawnMove, from, to, 0, (color|Bishop));
+          AddMove(PawnMove, from, to, 0, (color|Knight));
+        }
+        else {
+          AddMove(PawnMove, from, to);
+          if (YC(from) == (color ? 6 : 1)) {
+            to += (color ? South : North);
+            assert(IS_SQUARE(to));
+            if (_board[to] == _EMPTY) {
+              AddMove(PawnLung, from, to);
+            }
           }
         }
       }
@@ -1410,6 +1406,7 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
+  template<bool qsearch>
   void GetKnightMoves(const Color color, const int from) {
     assert(!chkrs);
     assert(IS_SQUARE(from));
@@ -1427,11 +1424,40 @@ struct Node
       const int cap = _board[to]->type;
       assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
-        AddMove(KnightMove, from, to);
+        if (!qsearch) {
+          AddMove(KnightMove, from, to);
+        }
       }
       else if (COLOR(cap) != color) {
         AddMove(KnightMove, from, to, cap);
       }
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  void GetSliderCaptures(const Color color, const MoveType type,
+                         uint64_t mvs, const int from)
+  {
+    assert(!chkrs);
+    assert(IS_SQUARE(from));
+    assert(_board[from] != _EMPTY);
+    assert(_board[from]->type == (color|type));
+    assert(_board[from]->sqr == from);
+    const int pinDir = GetPinDir(color, from);
+    while (mvs) {
+      if (mvs & 0xFF) {
+        const int to = ((mvs & 0xFF) - 1);
+        const int dir = (Direction(from, to));
+        assert(IS_DIR(dir));
+        if (!pinDir || (abs(dir) == pinDir)) {
+          const int cap = _board[to]->type;
+          assert(cap || (_board[to] == _EMPTY));
+          if ((cap != 0) & (COLOR(cap) != color)) {
+            AddMove(type, from, to, cap);
+          }
+        }
+      }
+      mvs >>= 8;
     }
   }
 
@@ -1475,7 +1501,7 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
-  template<Color color>
+  template<Color color, bool qsearch>
   void GetKingMoves() {
     assert(!chkrs);
     assert(_KING[color]->type == (color|King));
@@ -1489,7 +1515,16 @@ struct Node
       const int to = ((mvs & 0xFF) - 1);
       assert(Distance(from, to) == 1);
       assert(IS_DIR(Direction(from, to)));
-      if (!AttackedBy<!color>(to)) {
+      if (qsearch) {
+        const int cap = _board[to]->type;
+        assert(cap || (_board[to] == _EMPTY));
+        if ((cap != 0) & (COLOR(cap) != color)) {
+          if (!AttackedBy<!color>(to)) {
+            AddMove(KingMove, from, to, cap);
+          }
+        }
+      }
+      else if (!AttackedBy<!color>(to)) {
         const int cap = _board[to]->type;
         assert(cap || (_board[to] == _EMPTY));
         if (!cap) {
@@ -1741,7 +1776,7 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
-  template<Color color>
+  template<Color color, bool qsearch>
   void GenerateMoves() {
     assert(!_piece[0].type);
     assert(_piece[WhiteKingOffset].type == (White|King));
@@ -1786,34 +1821,49 @@ struct Node
     for (int i = _pcount[color|Pawn]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackPawnOffset : PawnOffset) + i].sqr;
-      GetPawnMoves<color>(from);
+      GetPawnMoves<color, qsearch>(from);
     }
 
     for (int i = _pcount[color|Knight]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackKnightOffset : KnightOffset) + i].sqr;
-      GetKnightMoves(color, from);
+      GetKnightMoves<qsearch>(color, from);
     }
 
     for (int i = _pcount[color|Bishop]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackBishopOffset : BishopOffset) + i].sqr;
-      GetSliderMoves(color, BishopMove, _bishopRook[from], from);
+      if (qsearch) {
+        GetSliderCaptures(color, BishopMove, _atkd[from + 8], from);
+      }
+      else {
+        GetSliderMoves(color, BishopMove, _bishopRook[from], from);
+      }
     }
 
     for (int i = _pcount[color|Rook]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackRookOffset : RookOffset) + i].sqr;
-      GetSliderMoves(color, RookMove, _bishopRook[from + 8], from);
+      if (qsearch) {
+        GetSliderCaptures(color, RookMove, _atkd[from + 8], from);
+      }
+      else {
+        GetSliderMoves(color, RookMove, _bishopRook[from + 8], from);
+      }
     }
 
     for (int i = _pcount[color|Queen]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackQueenOffset : QueenOffset) + i].sqr;
-      GetSliderMoves(color, QueenMove, _queenKing[from], from);
+      if (qsearch) {
+        GetSliderCaptures(color, QueenMove, _atkd[from + 8], from);
+      }
+      else {
+        GetSliderMoves(color, QueenMove, _queenKing[from], from);
+      }
     }
 
-    GetKingMoves<color>();
+    GetKingMoves<color, qsearch>();
   }
 
   //---------------------------------------------------------------------------
@@ -2032,7 +2082,7 @@ struct Node
     assert(ValidateMove<color>(move) == 0);
     assert(!chkrs == !AttackedBy<!color>(_KING[color]->sqr));
 
-    _execs++;
+    _stats.execs++;
 
     const int from  = move.From();
     const int to    = move.To();
@@ -2514,7 +2564,7 @@ struct Node
   //---------------------------------------------------------------------------
   template<Color color>
   uint64_t PerftSearch(const int depth) {
-    GenerateMoves<color>();
+    GenerateMoves<color, false>();
     if (!child || (depth <= 1)) {
       return moveCount;
     }
@@ -2537,7 +2587,7 @@ struct Node
     assert(child);
     assert(VerifyAttacks(true));
 
-    GenerateMoves<color>();
+    GenerateMoves<color, false>();
     std::sort(moves, (moves + moveCount), Move::LexicalCompare);
 
     uint64_t total = 0;
@@ -2733,7 +2783,7 @@ struct Node
     }
 
     // generate moves
-    GenerateMoves<color>(); // TODO make QSearchMoveGen(depth)
+    GenerateMoves<color, true>();
     if (moveCount <= 0) {
       if (chkrs) {
         assert(!firstMove.IsValid());
@@ -2754,10 +2804,11 @@ struct Node
         continue;
       }
 
-      // TODO remove this once QSearchMoveGen is complete
-      if (!chkrs & !move->IsCapOrPromo()) {
-        continue;
+      if (!chkrs && !move->IsCapOrPromo()) {
+        PrintBoard();
+        senjo::Output() << move->ToString();
       }
+      assert(chkrs | move->IsCapOrPromo());
 
       _stats.qexecs++;
       Exec<color>(*move, *child);
@@ -3049,7 +3100,7 @@ search_main:
 
     // make sure firstMove is populated
     if (!firstMove.Type()) {
-      GenerateMoves<color>();
+      GenerateMoves<color, false>();
       if (moveCount <= 0) {
         if (chkrs) {
           _tt.StoreCheckmate(positionKey);
@@ -3118,7 +3169,7 @@ search_main:
 
     // generate moves if we haven't done so already
     if (moveCount <= 0) {
-      GenerateMoves<color>();
+      GenerateMoves<color, false>();
       assert(moveCount > 0);
 
       // single reply extensions
@@ -3256,7 +3307,7 @@ search_main:
     pruneOK = false;
     depthChange = 0;
 
-    GenerateMoves<color>();
+    GenerateMoves<color, false>();
     if (moveCount <= 0) {
       senjo::Output() << "No legal moves";
       return std::string();
@@ -3507,10 +3558,10 @@ const char* Clunk::MakeMove(const char* str) {
   }
 
   if (color) {
-    root->GenerateMoves<Black>();
+    root->GenerateMoves<Black, false>();
   }
   else {
-    root->GenerateMoves<White>();
+    root->GenerateMoves<White, false>();
   }
 
   for (; root->moveIndex < root->moveCount; ++root->moveIndex) {
@@ -3945,10 +3996,10 @@ void Clunk::GetStats(int* depth,
     *seldepth = _seldepth;
   }
   if (nodes) {
-    *nodes = _execs;
+    *nodes = (_stats.snodes + _stats.qnodes);
   }
   if (qnodes) {
-    *qnodes = _qnodes;
+    *qnodes = _stats.qnodes;
   }
   if (msecs) {
     *msecs = (senjo::Now() - _startTime);
