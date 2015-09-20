@@ -99,7 +99,10 @@ enum StateBits {
   BlackLong   = 0x10,
   BlackCastle = (BlackShort|BlackLong),
   CastleMask  = (WhiteCastle|BlackCastle),
-  Draw        = 0x20
+  Draw        = 0x20,
+  Backward    = 0x100,
+  Supported   = 0x200,
+  Passed      = 0x400
 };
 
 //-----------------------------------------------------------------------------

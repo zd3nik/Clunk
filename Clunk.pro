@@ -2,6 +2,8 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
+QMAKE_CXXFLAGS_RELEASE -= -mtune=generic
+QMAKE_CXXFLAGS_RELEASE += -mtune=native
 
 INCLUDEPATH += .
 INCLUDEPATH += src

@@ -26,6 +26,33 @@ const int _VALUE_OF[12] = {
   QueenValue,   QueenValue
 };
 
+//----------------------------------------------------------------------------
+const int _PASSER_BONUS[8] = { 0, 8, 12, 20, 32, 48, 68, 0 };
+
+//----------------------------------------------------------------------------
+const int _PAWN_SQR[128] = {
+   0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0,
+   8,  8,  8,  0,  0,  8,  8,  8,   24, 24, 24, 24, 24, 24, 24, 24,
+   0,  0,  0,  8,  8,  0,  0,  0,   16, 16, 16, 16, 16, 16, 16, 16,
+   0,  0,  8, 10, 10,  8,  0,  0,    8,  8, 10, 12, 12, 10,  8,  8,
+   8,  8, 10, 12, 12, 10,  8,  8,    0,  0,  8, 10, 10,  8,  0,  0,
+  16, 16, 16, 16, 16, 16, 16, 16,    0,  0,  0,  8,  8,  0,  0,  0,
+  24, 24, 24, 24, 24, 24, 24, 24,    8,  8,  8,  0,  0,  8,  8,  8,
+   0,  0,  0,  0,  0,  0,  0,  0,    0,  0,  0,  0,  0,  0,  0,  0
+};
+
+//----------------------------------------------------------------------------
+const int _SQR[128] =  {
+ -24,-16,-12, -8, -8,-12,-16,-24,   -4,  8,  8, -8, -8,  8,  8, -4,
+ -16,-12, -8,  0,  0, -8,-12,-16,   -4, -8,-12,-12,-12,-12, -8, -4,
+ -12, -8,  0,  8,  8,  0, -8,-12,   -8,-12,-16,-16,-16,-16,-12, -8,
+  -8,  0,  8, 12, 12,  8,  0, -8,  -12,-16,-24,-24,-24,-24,-16,-12,
+  -8,  0,  8, 12, 12,  8,  0, -8,  -12,-16,-24,-24,-24,-24,-16,-12,
+ -12, -8,  0,  8,  8,  0, -8,-12,   -8,-12,-16,-16,-16,-16,-12, -8,
+ -16,-12, -8,  0,  0, -8,-12,-16,   -4, -8,-12,-12,-12,-12, -8, -4,
+ -24,-16,-12, -8, -8,-12,-16,-24,   -4,  8,  8, -8, -8,  8,  8, -4
+};
+
 //-----------------------------------------------------------------------------
 const int _TOUCH[128] = {
   ~WhiteLong, ~0, ~0, ~0, ~WhiteCastle, ~0, ~0, ~WhiteShort, 0,0,0,0,0,0,0,0,
@@ -54,6 +81,10 @@ const int _DIR_SHIFT[35] = {
 };
 
 //-----------------------------------------------------------------------------
+const uint64_t _DIAG_DIRS  = 0xFF00FF0000FF00FFULL;
+const uint64_t _CROSS_DIRS = 0x00FF00FFFF00FF00ULL;
+
+//-----------------------------------------------------------------------------
 char               _dir[128][128] = {0};
 char               _dist[128][128] = {0};
 char               _kingDir[128] = {0};
@@ -61,7 +92,7 @@ Piece*             _board[128] = {0};
 Piece              _piece[PieceListSize];
 int                _pcount[12] = {0};
 int                _material[2] = {0};
-uint64_t           _atkd[128] = {0};
+uint64_t           _atk[128] = {0};
 uint64_t           _pawnCaps[128] = {0};
 uint64_t           _knightMoves[128] = {0};
 uint64_t           _bishopRook[128] = {0};
@@ -635,10 +666,10 @@ inline void AddAttack(const int from, const int to, const int dir) {
   assert(IS_SLIDER(_board[from]->type));
   assert(_board[from]->sqr == from);
   assert(Direction(from, to) == dir);
-  assert(!(_atkd[to] & (0xFFULL << DirShift(dir))) ||
-         ((_atkd[to] & (0xFFULL << DirShift(dir))) ==
+  assert(!(_atk[to] & (0xFFULL << DirShift(dir))) ||
+         ((_atk[to] & (0xFFULL << DirShift(dir))) ==
           (uint64_t(from + 1) << DirShift(dir))));
-  _atkd[to] |= (uint64_t(from + 1) << DirShift(dir));
+  _atk[to] |= (uint64_t(from + 1) << DirShift(dir));
 }
 
 //-----------------------------------------------------------------------------
@@ -650,10 +681,10 @@ inline void AddSlide(const int from, const int to, const int dir) {
   assert(IS_SLIDER(_board[from]->type));
   assert(_board[from]->sqr == from);
   assert(Direction(from, to) == dir);
-  assert(!(_atkd[from + 8] & (0xFFULL << DirShift(dir))) ||
-         ((_atkd[from + 8] & (0xFFULL << DirShift(dir))) ==
+  assert(!(_atk[from + 8] & (0xFFULL << DirShift(dir))) ||
+         ((_atk[from + 8] & (0xFFULL << DirShift(dir))) ==
           (uint64_t(to + 1) << DirShift(dir))));
-  _atkd[from + 8] |= (uint64_t(to + 1) << DirShift(dir));
+  _atk[from + 8] |= (uint64_t(to + 1) << DirShift(dir));
 }
 
 //-----------------------------------------------------------------------------
@@ -666,14 +697,14 @@ inline void SetSlide(const int from, const int to, const int dir) {
   assert(_board[from]->sqr == from);
   assert(Direction(from, to) == dir);
   const int shift = DirShift(dir);
-  _atkd[from + 8] = ((_atkd[from + 8] & ~(0xFFULL << shift)) |
+  _atk[from + 8] = ((_atk[from + 8] & ~(0xFFULL << shift)) |
       (uint64_t(to + 1) << shift));
 }
 
 //-----------------------------------------------------------------------------
 inline void ClearAttack(const int to, const int dir) {
   assert(IS_SQUARE(to));
-  _atkd[to] &= ~(0xFFULL << DirShift(dir));
+  _atk[to] &= ~(0xFFULL << DirShift(dir));
 }
 
 //-----------------------------------------------------------------------------
@@ -682,7 +713,7 @@ inline void ClearSlide(const int from, const int dir) {
   assert(_board[from] >= _FIRST_SLIDER);
   assert(IS_SLIDER(_board[from]->type));
   assert(_board[from]->sqr == from);
-  _atkd[from + 8] &= ~(0xFFULL << DirShift(dir));
+  _atk[from + 8] &= ~(0xFFULL << DirShift(dir));
 }
 
 //-----------------------------------------------------------------------------
@@ -742,7 +773,7 @@ void ClearAttacksFrom(const int pc, const int from) {
 //-----------------------------------------------------------------------------
 void TruncateAttacks(const int to, const int stop) {
   assert(IS_SQUARE(to));
-  for (uint64_t tmp = _atkd[to]; tmp; tmp >>= 8) {
+  for (uint64_t tmp = _atk[to]; tmp; tmp >>= 8) {
     if (tmp & 0xFF) {
       const int from = static_cast<int>((tmp & 0xFF) - 1);
       assert(IS_SQUARE(from));
@@ -766,7 +797,7 @@ void TruncateAttacks(const int to, const int stop) {
 void ExtendAttacks(const int to) {
   assert(IS_SQUARE(to));
   assert(_board[to] == _EMPTY);
-  for (uint64_t tmp = _atkd[to]; tmp; tmp >>= 8) {
+  for (uint64_t tmp = _atk[to]; tmp; tmp >>= 8) {
     if (tmp & 0xFF) {
       const int from = static_cast<int>((tmp & 0xFF) - 1);
       assert(IS_SQUARE(from));
@@ -796,7 +827,7 @@ bool AttackedBy(const int sqr) {
   assert(IS_SQUARE(sqr));
   if (_pcount[color]) {
     assert(_pcount[color] > 0);
-    for (uint64_t mvs = _atkd[sqr]; mvs; mvs >>= 8) {
+    for (uint64_t mvs = _atk[sqr]; mvs; mvs >>= 8) {
       if (mvs & 0xFF) {
         assert(IS_SQUARE((mvs & 0xFF) - 1));
         assert(IS_DIR(Direction(((mvs & 0xFF) - 1), sqr)));
@@ -885,9 +916,9 @@ bool VerifyAttacksTo(const int to, const bool do_assert, char kdir[128]) {
     }
   }
   if (do_assert) {
-    assert(atk == _atkd[to]);
+    assert(atk == _atk[to]);
   }
-  return (atk == _atkd[to]);
+  return (atk == _atk[to]);
 }
 
 //-----------------------------------------------------------------------------
@@ -911,9 +942,9 @@ bool VerifySlide(uint64_t mvs, const int from, const bool do_assert) {
     mvs >>= 8;
   }
   if (do_assert) {
-    assert(slide == _atkd[from + 8]);
+    assert(slide == _atk[from + 8]);
   }
-  return (slide == _atkd[from + 8]);
+  return (slide == _atk[from + 8]);
 }
 
 //-----------------------------------------------------------------------------
@@ -977,7 +1008,7 @@ bool EpPinned(const int from, const int cap) {
   int left = std::min<int>(from, cap);
   int right = std::max<int>(from, cap);
   if (_KING[color]->sqr < left) {
-    right = ((_atkd[right] >> DirShift(West)) & 0xFF);
+    right = ((_atk[right] >> DirShift(West)) & 0xFF);
     assert(!right || (IS_SQUARE(right - 1) && (YC(right - 1) == YC(from))));
     assert(!right || (_board[right - 1] >= _FIRST_SLIDER));
     if (right-- && (_board[right] >= _FIRST_ROOK) &&
@@ -1000,7 +1031,7 @@ bool EpPinned(const int from, const int cap) {
   }
   else {
     assert(_KING[color]->sqr > right);
-    left = ((_atkd[left] >> DirShift(East)) & 0xFF);
+    left = ((_atk[left] >> DirShift(East)) & 0xFF);
     assert(!left || (IS_SQUARE(left - 1) && (YC(left - 1) == YC(from))));
     assert(!left || (_board[left - 1] >= _FIRST_ROOK));
     if (left-- && (_board[left] >= _FIRST_ROOK) &&
@@ -1090,7 +1121,10 @@ struct Node
   uint64_t positionKey;
   Move lastMove;
   int standPat;
-  int chkrs;
+  int checks;
+  int fileInfo[2][8];
+  int atkCount[2];
+  int atkScore[2];
 
   //---------------------------------------------------------------------------
   // updated by move generation and search
@@ -1127,7 +1161,8 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
-  void PrintBoard() const {
+  void PrintBoard() {
+    Evaluate();
     senjo::Output out(senjo::Output::NoPrefix);
     out << '\n';
     for (int y = 7; y >= 0; --y) {
@@ -1154,13 +1189,25 @@ struct Node
         out << (COLOR(state) ? "  Black to move" : "  White to move");
         break;
       case 6:
+        out << "  Move Number       : " << ((mcount + 2) / 2);
+        break;
+      case 5:
+        out << "  Reversible Moves  : " << rcount;
+        break;
+      case 4:
+        out << "  Material Balance  : " << (_material[White] - _material[Black]);
+        break;
+      case 3:
+        out << "  Evaluation        : " << (COLOR(state) ? -standPat : standPat);
+        break;
+      case 2:
         out << "  Castling Rights   : ";
         if (state & WhiteShort) out << 'K';
         if (state & WhiteLong)  out << 'Q';
         if (state & BlackShort) out << 'k';
         if (state & BlackLong)  out << 'q';
         break;
-      case 5:
+      case 1:
         if (ep != None) {
           out << "  En Passant Square : " << senjo::Square(ep).ToString();
         }
@@ -1243,11 +1290,11 @@ struct Node
     assert(IS_SQUARE(sqr));
     assert(_board[sqr] == _KING[color]);
 
-    chkrs = 0;
+    checks = 0;
 
     if (_pcount[!color]) {
       assert(_pcount[!color] > 0);
-      for (uint64_t mvs = _atkd[sqr]; mvs; mvs >>= 8) {
+      for (uint64_t mvs = _atk[sqr]; mvs; mvs >>= 8) {
         if (mvs & 0xFF) {
           assert(IS_SQUARE((mvs & 0xFF) - 1));
           assert(IS_DIR(Direction(((mvs & 0xFF) - 1), sqr)));
@@ -1255,8 +1302,8 @@ struct Node
           assert(_board[(mvs & 0xFF) - 1]->sqr == ((mvs & 0xFF) - 1));
           assert(IS_SLIDER(_board[(mvs & 0xFF) - 1]->type));
           if (COLOR(_board[(mvs & 0xFF) - 1]->type) != color) {
-            assert(!(chkrs & 0xFF00));
-            chkrs = ((chkrs << 8) | (mvs & 0xFF));
+            assert(!(checks & 0xFF00));
+            checks = ((checks << 8) | (mvs & 0xFF));
           }
         }
       }
@@ -1270,8 +1317,8 @@ struct Node
         assert(int((mvs & 0xFF) - 1) != sqr);
         if (_board[(mvs & 0xFF) - 1]->type == ((!color)|Knight)) {
           assert(_board[(mvs & 0xFF) - 1]->sqr == ((mvs & 0xFF) - 1));
-          assert(!(chkrs & 0xFF00));
-          chkrs = ((chkrs << 8) | (mvs & 0xFF));
+          assert(!(checks & 0xFF00));
+          checks = ((checks << 8) | (mvs & 0xFF));
         }
       }
     }
@@ -1283,24 +1330,24 @@ struct Node
       if (_board[from] == _KING[!color]) {
         assert(_board[from]->type == ((!color)|King));
         assert(_board[from]->sqr == from);
-        assert(!(chkrs & 0xFF00));
-        chkrs = ((chkrs << 8) | (mvs & 0xFF));
+        assert(!(checks & 0xFF00));
+        checks = ((checks << 8) | (mvs & 0xFF));
       }
       else if (_board[from]->type == ((!color)|Pawn)) {
         assert(_board[from]->sqr == from);
         if (color) {
           switch (Direction(from, sqr)) {
           case NorthWest: case NorthEast:
-            assert(!(chkrs & 0xFF00));
-            chkrs = ((chkrs << 8) | (mvs & 0xFF));
+            assert(!(checks & 0xFF00));
+            checks = ((checks << 8) | (mvs & 0xFF));
             break;
           }
         }
         else {
           switch (Direction(from, sqr)) {
           case SouthWest: case SouthEast:
-            assert(!(chkrs & 0xFF00));
-            chkrs = ((chkrs << 8) | (mvs & 0xFF));
+            assert(!(checks & 0xFF00));
+            checks = ((checks << 8) | (mvs & 0xFF));
             break;
           }
         }
@@ -1312,8 +1359,8 @@ struct Node
   inline int GetPinDir(const Color color, const int from) {
     assert(IS_SQUARE(from));
     const int kdir = _kingDir[from + (color * 8)];
-    if (kdir && _atkd[from]) {
-      const int tmp = ((_atkd[from] >> DirShift(kdir)) & 0xFF);
+    if (kdir && _atk[from]) {
+      const int tmp = ((_atk[from] >> DirShift(kdir)) & 0xFF);
       if (tmp) {
         assert(IS_SQUARE(tmp - 1));
         assert(_board[tmp - 1] >= _FIRST_SLIDER);
@@ -1328,27 +1375,29 @@ struct Node
 
   //---------------------------------------------------------------------------
   inline void AddMove(const MoveType type,
-                      const int from, const int to,
+                      const int from, const int to, int score,
                       const int cap = 0, const int promo = 0)
   {
     assert(IS_MTYPE(type));
     assert(IS_SQUARE(from));
     assert(IS_SQUARE(to));
     assert(from != to);
+    assert(abs(score) < Infinity);
     assert(moveCount >= 0);
     assert((moveCount + 1) < MaxMoves);
-    moves[moveCount++].Set(type, from, to, cap, promo);
+    moves[moveCount++].Set(type, from, to, cap, promo, score);
   }
 
   //---------------------------------------------------------------------------
   template<Color color, bool qsearch>
   void GetPawnMoves(const int from) {
-    assert(!chkrs);
+    assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
     assert(_board[from]->type == (color|Pawn));
     assert(_board[from]->sqr == from);
     const int pinDir = GetPinDir(color, from);
+    int score;
     int to;
     for (uint64_t mvs = _pawnCaps[from + (color * 8)]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
@@ -1364,18 +1413,19 @@ struct Node
         if ((ep != None) && (to == ep) &&
             !EpPinned<color>(from, (ep + (color ? North : South))))
         {
-          AddMove(PawnCap, from, to);
+          AddMove(PawnCap, from, to, PawnValue);
         }
       }
       else if (COLOR(cap) != color) {
+        score = ValueOf(cap);
         if (YC(to) == (color ? 0 : 7)) {
-          AddMove(PawnCap, from, to, cap, (color|Queen));
-          AddMove(PawnCap, from, to, cap, (color|Rook));
-          AddMove(PawnCap, from, to, cap, (color|Bishop));
-          AddMove(PawnCap, from, to, cap, (color|Knight));
+          AddMove(PawnCap, from, to, (score + QueenValue),  cap, (color|Queen));
+          AddMove(PawnCap, from, to, (score + RookValue),   cap, (color|Rook));
+          AddMove(PawnCap, from, to, (score + BishopValue), cap, (color|Bishop));
+          AddMove(PawnCap, from, to, (score + KnightValue), cap, (color|Knight));
         }
         else {
-          AddMove(PawnCap, from, to, cap);
+          AddMove(PawnCap, from, to, score, cap);
         }
       }
     }
@@ -1386,18 +1436,22 @@ struct Node
       }
       if (_board[to] == _EMPTY) {
         if (qsearch || (YC(to) == (color ? 0 : 7))) {
-          AddMove(PawnMove, from, to, 0, (color|Queen));
-          AddMove(PawnMove, from, to, 0, (color|Rook));
-          AddMove(PawnMove, from, to, 0, (color|Bishop));
-          AddMove(PawnMove, from, to, 0, (color|Knight));
+          AddMove(PawnMove, from, to, QueenValue,  0, (color|Queen));
+          AddMove(PawnMove, from, to, RookValue,   0, (color|Rook));
+          AddMove(PawnMove, from, to, BishopValue, 0, (color|Bishop));
+          AddMove(PawnMove, from, to, KnightValue, 0, (color|Knight));
         }
         else {
-          AddMove(PawnMove, from, to);
+          score = (_PAWN_SQR[to + (8 * color)] -
+                   _PAWN_SQR[from + (8 * color)]);
+          AddMove(PawnMove, from, to, score);
           if (YC(from) == (color ? 6 : 1)) {
             to += (color ? South : North);
             assert(IS_SQUARE(to));
             if (_board[to] == _EMPTY) {
-              AddMove(PawnLung, from, to);
+              score = (_PAWN_SQR[to + (8 * color)] -
+                       _PAWN_SQR[from + (8 * color)]);
+              AddMove(PawnLung, from, to, score);
             }
           }
         }
@@ -1408,7 +1462,7 @@ struct Node
   //---------------------------------------------------------------------------
   template<bool qsearch>
   void GetKnightMoves(const Color color, const int from) {
-    assert(!chkrs);
+    assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
     assert(_board[from]->type == (color|Knight));
@@ -1416,6 +1470,7 @@ struct Node
     if (GetPinDir(color, from)) {
       return;
     }
+    int score;
     for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
       const int to = ((mvs & 0xFF) - 1);
@@ -1425,11 +1480,13 @@ struct Node
       assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
         if (!qsearch) {
-          AddMove(KnightMove, from, to);
+          score = (_SQR[to] - _SQR[from]);
+          AddMove(KnightMove, from, to, score);
         }
       }
       else if (COLOR(cap) != color) {
-        AddMove(KnightMove, from, to, cap);
+        score = (_SQR[to] - _SQR[from] + ValueOf(cap) - (8 * KnightMove));
+        AddMove(KnightMove, from, to, score, cap);
       }
     }
   }
@@ -1438,12 +1495,13 @@ struct Node
   void GetSliderCaptures(const Color color, const MoveType type,
                          uint64_t mvs, const int from)
   {
-    assert(!chkrs);
+    assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
     assert(_board[from]->type == (color|type));
     assert(_board[from]->sqr == from);
     const int pinDir = GetPinDir(color, from);
+    int score;
     while (mvs) {
       if (mvs & 0xFF) {
         const int to = ((mvs & 0xFF) - 1);
@@ -1453,7 +1511,8 @@ struct Node
           const int cap = _board[to]->type;
           assert(cap || (_board[to] == _EMPTY));
           if ((cap != 0) & (COLOR(cap) != color)) {
-            AddMove(type, from, to, cap);
+            score = (ValueOf(cap) - (8 * type));
+            AddMove(type, from, to, score, cap);
           }
         }
       }
@@ -1465,12 +1524,13 @@ struct Node
   void GetSliderMoves(const Color color, const MoveType type,
                       uint64_t mvs, const int from)
   {
-    assert(!chkrs);
+    assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
     assert(_board[from]->type == (color|type));
     assert(_board[from]->sqr == from);
     const int pinDir = GetPinDir(color, from);
+    int score;
     while (mvs) {
       assert(mvs & 0xFF);
       const int end = ((mvs & 0xFF) - 1);
@@ -1483,11 +1543,12 @@ struct Node
           const int cap = _board[to]->type;
           assert(cap || (_board[to] == _EMPTY));
           if (!cap) {
-            AddMove(type, from, to);
+            AddMove(type, from, to, 0);
           }
           else {
             if (COLOR(cap) != color) {
-              AddMove(type, from, to, cap);
+              score = (ValueOf(cap) - (8 * type));
+              AddMove(type, from, to, score, cap);
             }
             break;
           }
@@ -1503,13 +1564,14 @@ struct Node
   //---------------------------------------------------------------------------
   template<Color color, bool qsearch>
   void GetKingMoves() {
-    assert(!chkrs);
+    assert(!checks);
     assert(_KING[color]->type == (color|King));
 
     const int from = _KING[color]->sqr;
     assert(IS_SQUARE(from));
     assert(_board[from] == _KING[color]);
 
+    int score;
     for (uint64_t mvs = _queenKing[from + 8]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
       const int to = ((mvs & 0xFF) - 1);
@@ -1520,7 +1582,8 @@ struct Node
         assert(cap || (_board[to] == _EMPTY));
         if ((cap != 0) & (COLOR(cap) != color)) {
           if (!AttackedBy<!color>(to)) {
-            AddMove(KingMove, from, to, cap);
+            score = (ValueOf(cap) - 80);
+            AddMove(KingMove, from, to, score, cap);
           }
         }
       }
@@ -1528,7 +1591,7 @@ struct Node
         const int cap = _board[to]->type;
         assert(cap || (_board[to] == _EMPTY));
         if (!cap) {
-          AddMove(KingMove, from, to);
+          AddMove(KingMove, from, to, -20);
           if ((to == (color ? F8 : F1)) &&
               (state & (color ? BlackShort : WhiteShort)) &&
               (_board[color ? G8 : G1] == _EMPTY) &&
@@ -1536,7 +1599,7 @@ struct Node
           {
             assert(from == (color ? E8 : E1));
             assert(_board[color ? H8 : H1]->type == (color|Rook));
-            AddMove(CastleShort, from, (color ? G8 : G1));
+            AddMove(CastleShort, from, (color ? G8 : G1), 50);
           }
           else if ((to == (color ? D8 : D1)) &&
                    (state & (color ? BlackLong : WhiteLong)) &&
@@ -1546,11 +1609,12 @@ struct Node
           {
             assert(from == (color ? E8 : E1));
             assert(_board[color ? A8 : A1]->type == (color|Rook));
-            AddMove(CastleLong, from, (color ? C8 : C1));
+            AddMove(CastleLong, from, (color ? C8 : C1), 50);
           }
         }
         else if (COLOR(cap) != color) {
-          AddMove(KingMove, from, to, cap);
+          score = (ValueOf(cap) - 80);
+          AddMove(KingMove, from, to, score, cap);
         }
       }
     }
@@ -1559,15 +1623,15 @@ struct Node
   //---------------------------------------------------------------------------
   template<Color color>
   void GetKingEscapes() {
-    assert((chkrs & 0xFF) && (chkrs & 0xFF00));
+    assert((checks & 0xFF) && (checks & 0xFF00));
     assert(_KING[color]->type == (color|King));
 
     const int from = _KING[color]->sqr;
     assert(IS_SQUARE(from));
     assert(_board[from] == _KING[color]);
 
-    const int sqr1 = ((chkrs & 0xFF) - 1);
-    const int sqr2 = (((chkrs >> 8) & 0xFF) - 1);
+    const int sqr1 = ((checks & 0xFF) - 1);
+    const int sqr2 = (((checks >> 8) & 0xFF) - 1);
     assert(sqr1 != sqr2);
     assert(IS_SQUARE(sqr1) & IS_SQUARE(sqr2));
     assert(IS_CAP(_board[sqr1]->type) && (COLOR(_board[sqr1]->type) != color));
@@ -1592,10 +1656,10 @@ struct Node
         const int cap = _board[to]->type;
         assert(cap || (_board[to] == _EMPTY));
         if (!cap) {
-          AddMove(KingMove, from, to);
+          AddMove(KingMove, from, to, 0);
         }
         else if (COLOR(cap) != color) {
-          AddMove(KingMove, from, to, cap);
+          AddMove(KingMove, from, to, ValueOf(cap), cap);
         }
       }
     }
@@ -1604,17 +1668,18 @@ struct Node
   //---------------------------------------------------------------------------
   template<Color color>
   void GetCheckEvasions() {
-    assert(chkrs);
-    assert(!(chkrs & ~0xFF));
+    assert(checks);
+    assert(!(checks & ~0xFF));
 
     int from;
-    int to = (chkrs - 1);
+    int to = (checks - 1);
     assert(IS_SQUARE(to));
 
     int cap = _board[to]->type;
     assert(IS_CAP(cap) & (COLOR(cap) != color));
     const bool slider = (cap >= Bishop);
 
+    int score;
     uint64_t mvs;
     if (_pcount[color|Pawn]) {
       assert(_pcount[color|Pawn] > 0);
@@ -1626,7 +1691,7 @@ struct Node
             if ((!pinDir || (abs(Direction(from, to)) == pinDir)) &&
                 !EpPinned<color>(from, to))
             {
-              AddMove(PawnCap, from, ep);
+              AddMove(PawnCap, from, ep, PawnValue);
             }
           }
         }
@@ -1637,7 +1702,7 @@ struct Node
             if ((!pinDir || (abs(Direction(from, to)) == pinDir)) &&
                 !EpPinned<color>(from, to))
             {
-              AddMove(PawnCap, from, ep);
+              AddMove(PawnCap, from, ep, PawnValue);
             }
           }
         }
@@ -1651,15 +1716,16 @@ struct Node
         if (_board[from]->type == (color|Pawn)) {
           const int pinDir = GetPinDir(color, from);
           if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+            score = ValueOf(cap);
             if (YC(to) == (color ? 0 : 7)) {
               assert(cap >= Knight);
-              AddMove(PawnCap, from, to, cap, (color|Queen));
-              AddMove(PawnCap, from, to, cap, (color|Rook));
-              AddMove(PawnCap, from, to, cap, (color|Bishop));
-              AddMove(PawnCap, from, to, cap, (color|Knight));
+              AddMove(PawnCap, from, to, (score + QueenValue),  cap, (color|Queen));
+              AddMove(PawnCap, from, to, (score + RookValue),   cap, (color|Rook));
+              AddMove(PawnCap, from, to, (score + BishopValue), cap, (color|Bishop));
+              AddMove(PawnCap, from, to, (score + KnightValue), cap, (color|Knight));
             }
             else {
-              AddMove(PawnCap, from, to, cap);
+              AddMove(PawnCap, from, to, score, cap);
             }
           }
         }
@@ -1683,13 +1749,15 @@ struct Node
             const int pinDir = GetPinDir(color, from);
             if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
               if (YC(to) == (color ? 0 : 7)) {
-                AddMove(PawnMove, from, to, 0, (color|Queen));
-                AddMove(PawnMove, from, to, 0, (color|Rook));
-                AddMove(PawnMove, from, to, 0, (color|Bishop));
-                AddMove(PawnMove, from, to, 0, (color|Knight));
+                AddMove(PawnMove, from, to, QueenValue,  0, (color|Queen));
+                AddMove(PawnMove, from, to, RookValue,   0, (color|Rook));
+                AddMove(PawnMove, from, to, BishopValue, 0, (color|Bishop));
+                AddMove(PawnMove, from, to, KnightValue, 0, (color|Knight));
               }
               else {
-                AddMove(PawnMove, from, to);
+                score = (_PAWN_SQR[to + (8 * color)] -
+                         _PAWN_SQR[from + (8 * color)]);
+                AddMove(PawnMove, from, to, score);
               }
             }
           }
@@ -1699,7 +1767,9 @@ struct Node
             if (_board[from]->type == (color|Pawn)) {
               const int pinDir = GetPinDir(color, from);
               if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
-                AddMove(PawnLung, from, to);
+                score = (_PAWN_SQR[to + (8 * color)] -
+                         _PAWN_SQR[from + (8 * color)]);
+                AddMove(PawnLung, from, to, score);
               }
             }
           }
@@ -1716,14 +1786,15 @@ struct Node
           if ((_board[from]->type == (color|Knight)) &&
               !GetPinDir(color, from))
           {
-            AddMove(KnightMove, from, to, cap);
+            score = (_SQR[to] - _SQR[from] + ValueOf(cap) - (8 * KnightMove));
+            AddMove(KnightMove, from, to, score, cap);
           }
         }
       }
 
       if (_pcount[color]) {
         assert(_pcount[color] > 0);
-        for (mvs = _atkd[to]; mvs; mvs >>= 8) {
+        for (mvs = _atk[to]; mvs; mvs >>= 8) {
           if (mvs & 0xFF) {
             from = ((mvs & 0xFF) - 1);
             assert(IS_SQUARE(from));
@@ -1734,7 +1805,8 @@ struct Node
             if (COLOR(type) == color) {
               const int pinDir = GetPinDir(color, from);
               if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
-                AddMove(static_cast<MoveType>(type & ~1), from, to, cap);
+                score = (ValueOf(cap) - (8 * (type & ~1)));
+                AddMove(static_cast<MoveType>(type & ~1), from, to, score, cap);
               }
             }
           }
@@ -1755,7 +1827,7 @@ struct Node
       assert(IS_SQUARE(to));
       assert(Distance(king, to) == 1);
       assert(IS_DIR(Direction(king, to)));
-      if ((slider & (to != (chkrs - 1))) &&
+      if ((slider & (to != (checks - 1))) &&
           (abs(Direction(king, to)) == abs(dir)))
       {
         continue;
@@ -1767,10 +1839,11 @@ struct Node
       cap = _board[to]->type;
       assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
-        AddMove(KingMove, king, to);
+        AddMove(KingMove, king, to, -20);
       }
       else if (COLOR(cap) != color) {
-        AddMove(KingMove, king, to, cap);
+        score = (ValueOf(cap) - 80);
+        AddMove(KingMove, king, to, score, cap);
       }
     }
   }
@@ -1806,13 +1879,13 @@ struct Node
 
     moveCount = moveIndex = 0;
 
-    assert(!(chkrs & ~0xFFFF));
-    if (chkrs & 0xFF00) { // double check
+    assert(!(checks & ~0xFFFF));
+    if (checks & 0xFF00) { // double check
       GetKingEscapes<color>();
       return;
     }
 
-    if (chkrs & 0xFF) { // single check
+    if (checks & 0xFF) { // single check
       GetCheckEvasions<color>();
       return;
     }
@@ -1834,7 +1907,7 @@ struct Node
       assert(i >= 0);
       from = _piece[(color ? BlackBishopOffset : BishopOffset) + i].sqr;
       if (qsearch) {
-        GetSliderCaptures(color, BishopMove, _atkd[from + 8], from);
+        GetSliderCaptures(color, BishopMove, _atk[from + 8], from);
       }
       else {
         GetSliderMoves(color, BishopMove, _bishopRook[from], from);
@@ -1845,7 +1918,7 @@ struct Node
       assert(i >= 0);
       from = _piece[(color ? BlackRookOffset : RookOffset) + i].sqr;
       if (qsearch) {
-        GetSliderCaptures(color, RookMove, _atkd[from + 8], from);
+        GetSliderCaptures(color, RookMove, _atk[from + 8], from);
       }
       else {
         GetSliderMoves(color, RookMove, _bishopRook[from + 8], from);
@@ -1856,7 +1929,7 @@ struct Node
       assert(i >= 0);
       from = _piece[(color ? BlackQueenOffset : QueenOffset) + i].sqr;
       if (qsearch) {
-        GetSliderCaptures(color, QueenMove, _atkd[from + 8], from);
+        GetSliderCaptures(color, QueenMove, _atk[from + 8], from);
       }
       else {
         GetSliderMoves(color, QueenMove, _queenKing[from], from);
@@ -2080,7 +2153,7 @@ struct Node
   template<Color color>
   void Exec(const Move& move, Node& dest) const {
     assert(ValidateMove<color>(move) == 0);
-    assert(!chkrs == !AttackedBy<!color>(_KING[color]->sqr));
+    assert(!checks == !AttackedBy<!color>(_KING[color]->sqr));
 
     _stats.execs++;
 
@@ -2170,7 +2243,7 @@ struct Node
           _board[to] = moved;
           moved->sqr = to;
           _material[!color] -= PawnValue;
-          if (_atkd[sqr]) {
+          if (_atk[sqr]) {
             ExtendAttacks(sqr);
           }
           dest.pawnKey = (pawnKey ^ _HASH[pc][from] ^ _HASH[pc][to] ^
@@ -2310,10 +2383,10 @@ struct Node
     dest.standPat = (_material[!color] - _material[color]);
     assert(standPat > (ply - Infinity));
 
-    if (!cap && _atkd[to]) {
+    if (!cap && _atk[to]) {
       TruncateAttacks(to, from);
     }
-    if (_atkd[from]) {
+    if (_atk[from]) {
       ExtendAttacks(from);
     }
     if (_board[to] >= _FIRST_SLIDER) {
@@ -2363,7 +2436,7 @@ struct Node
         AddPiece((color|Pawn), from);
         _material[color] += (PawnValue - ValueOf(promo));
         _material[!color] += ValueOf(cap);
-        if (_atkd[from]) {
+        if (_atk[from]) {
           TruncateAttacks(from, to);
         }
         if (cap >= Bishop) {
@@ -2375,7 +2448,7 @@ struct Node
         moved->sqr = from;
         AddPiece(cap, to);
         _material[!color] += ValueOf(cap);
-        if (_atkd[from]) {
+        if (_atk[from]) {
           TruncateAttacks(from, to);
         }
         if (cap >= Bishop) {
@@ -2387,7 +2460,7 @@ struct Node
         assert((ep != None) && (to == ep));
         const int sqr = (ep + (color ? North : South));
         assert(_board[sqr] == _EMPTY);
-        if (_atkd[sqr]) {
+        if (_atk[sqr]) {
           TruncateAttacks(sqr, -1);
         }
         AddPiece(((!color)|Pawn), sqr);
@@ -2395,13 +2468,13 @@ struct Node
         _board[from] = moved;
         moved->sqr = from;
         _material[!color] += PawnValue;
-        if (_atkd[from]) {
+        if (_atk[from]) {
           TruncateAttacks(from, to);
         }
-        if (_atkd[to]) {
+        if (_atk[to]) {
           ExtendAttacks(to);
         }
-        if (_atkd[sqr]) {
+        if (_atk[sqr]) {
           TruncateAttacks(sqr, from);
         }
         UpdateKingDirs<White>(to, sqr);
@@ -2421,13 +2494,13 @@ struct Node
       else {
         _board[to] = _EMPTY;
       }
-      if (_atkd[from]) {
+      if (_atk[from]) {
         TruncateAttacks(from, to);
       }
       if (cap >= Bishop) {
         AddAttacksFrom(cap, to);
       }
-      else if (!cap && _atkd[to]) {
+      else if (!cap && _atk[to]) {
         ExtendAttacks(to);
       }
       SetKingDirs<color>(from);
@@ -2457,7 +2530,7 @@ struct Node
         assert(_kingDir[color ? (F8 + 8) : F1] == West);
         _kingDir[color ? (F8 + 8) : F1] = 0;
       }
-      if (_atkd[from]) {
+      if (_atk[from]) {
         TruncateAttacks(from, to);
       }
       AddAttacksFrom((color|Rook), (color ? H8 : H1));
@@ -2487,7 +2560,7 @@ struct Node
         assert(_kingDir[color ? (D8 + 8) : D1] == East);
         _kingDir[color ? (D8 + 8) : D1] = 0;
       }
-      if (_atkd[from]) {
+      if (_atk[from]) {
         TruncateAttacks(from, to);
       }
       AddAttacksFrom((color|Rook), (color ? A8 : A1));
@@ -2514,13 +2587,13 @@ struct Node
       else {
         _board[to] = _EMPTY;
       }
-      if (_atkd[from]) {
+      if (_atk[from]) {
         TruncateAttacks(from, to);
       }
       if (cap >= Bishop) {
         AddAttacksFrom(cap, to);
       }
-      else if (!cap && _atkd[to]) {
+      else if (!cap && _atk[to]) {
         ExtendAttacks(to);
       }
       if (_board[from] >= _FIRST_SLIDER) {
@@ -2537,7 +2610,7 @@ struct Node
   template<Color color>
   inline void ExecNullMove(Node& dest) const {
     assert(COLOR(state) == color);
-    assert(!chkrs);
+    assert(!checks);
     assert(&dest != this);
 
     _stats.nullMoves++;
@@ -2556,7 +2629,7 @@ struct Node
     dest.lastMove.Clear();
     dest.standPat = (_material[!color] - _material[color]);
     assert(standPat > (ply - Infinity));
-    dest.chkrs = 0;
+    dest.checks = 0;
 
 //    assert(VerifyAttacks(true));
   }
@@ -2597,13 +2670,16 @@ struct Node
         Exec<color>(move, *child);
         const uint64_t count = child->PerftSearch<!color>(depth - 1);
         Undo<color>(move);
-        senjo::Output() << move.ToString() << ' ' << count;
+        senjo::Output() << move.ToString() << ' ' << count << ' '
+                        << move.GetScore();
         total += count;
       }
     }
     else {
       while (!_stop && (moveIndex < moveCount)) {
-        senjo::Output() << moves[moveIndex++].ToString() << " 1 ";
+        const Move& move = moves[moveIndex++];
+        assert(move.IsValid());
+        senjo::Output() << move.ToString() << " 0 " << move.GetScore();
         total++;
       }
     }
@@ -2664,6 +2740,435 @@ struct Node
     }
   }
 
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int PawnEval() {
+    assert((PawnOffset + 8) == BlackPawnOffset);
+    int score = 0;
+    int files = 0;
+    int* file = fileInfo[color];
+
+    for (int i = _pcount[color|Pawn]; i--; ) {
+      assert(i >= 0);
+      const int sqr = _piece[PawnOffset + i + (8 * color)].sqr;
+      assert(IS_SQUARE(sqr));
+      assert(_board[sqr] == (_piece + PawnOffset + i + (8 * color)));
+      assert(_board[sqr]->type == (color|Pawn));
+      assert(_board[sqr]->sqr == sqr);
+
+      score += _PAWN_SQR[sqr + (8 * color)];
+
+      // is this pawn menacing the enemy king?
+//      for (uint64_t mvs = _pawnCaps[sqr]; mvs; mvs >>= 8) {
+//        assert(mvs & 0xFF);
+//        assert(IS_SQUARE((mvs & 0xFF) - 1));
+//        atkCount[color] += (Distance(((mvs & 0xFF) - 1), _KING[!color]->sqr) <= 1);
+//      }
+
+      // penalty if doubled
+      const int x = XC(sqr);
+      const int y = YC(sqr);
+      assert((x >= 0) && (x < 8));
+      assert((y >= 1) && (y < 7));
+      const int a = file[x];
+      if (a) {
+        file[x] = (color ? std::min<int>(a, y) : std::max<int>(a, y));
+        score -= 32;
+      }
+      else {
+        file[x] = y;
+        files++;
+        assert(files <= 8);
+      }
+    }
+
+    for (int x = 0; files-- && (x < 8); ++x) {
+      assert(files >= 0);
+      const int y = file[x];
+      if (!y) {
+        continue;
+      }
+
+      assert((y >= 1) && (y < 7));
+      assert(IS_SQUARE(SQR(x,y)));
+      assert(_board[SQR(x,y)]->type == (color|Pawn));
+      assert(_board[SQR(x,y)]->sqr == SQR(x,y));
+
+      int left = (x ? (color ? ((file[x - 1] & 0xFF) - y)
+                             : (y - (file[x - 1] & 0xFF))) : -8);
+      int right = ((x < 7) ? (color ? ((file[x + 1] & 0xFF) - y)
+                                    : (y - (file[x + 1] & 0xFF))) : -8);
+      if ((left < 0) & (right < 0)) {
+        score -= 4;
+        file[x] |= Backward;
+      }
+      else if ((left == 0) | (left == 1) | (right == 0) | (right == 1)) {
+        file[x] |= Supported;
+      }
+    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int PasserEval() {
+    int score = 0;
+    int* me = fileInfo[color];
+    const int* you = fileInfo[!color];
+
+    for (int x = 0; x < 8; ++x) {
+      const int y = (me[x] & 0xFF);
+      if ((y != 0) & !you[x]) {
+        assert((y >= 1) & (y <= 6));
+        const int from = SQR(x,y);
+        assert(IS_SQUARE(from));
+        assert(_board[from]->type == (color|Pawn));
+        int left = (x ? (you[x - 1] != 0) : 0);
+        int right = ((x < 7) ? (you[x + 1] != 0) : 0);
+        int bonus = 0;
+        if (!(left | right)) {
+          me[x] |= Passed;
+          bonus = _PASSER_BONUS[color ? (7 - y) : y];
+
+          // bonus if it has support
+          if (me[x] & Supported) {
+            bonus = ((bonus * 4) / 3);
+          }
+        }
+        else if (me[x] & Supported) {
+          // is it a potential passer?
+          if (left) {
+            for (int sqr = (from + (color ? SouthWest : NorthWest));
+                 IS_SQUARE(sqr); sqr += (color ? South : North))
+            {
+              left += (_board[sqr]->type == ((!color)|Pawn));
+            }
+          }
+          if (right) {
+            for (int sqr = (from + (color ? SouthEast : NorthEast));
+                 IS_SQUARE(sqr); sqr += (color ? South : North))
+            {
+              right += (_board[sqr]->type == ((!color)|Pawn));
+            }
+          }
+          if (x && me[x - 1]) {
+            left--;
+            for (int sqr = (from + (color ? NorthWest : SouthWest));
+                 IS_SQUARE(sqr); sqr += (color ? North : South))
+            {
+              left--;
+            }
+          }
+          if ((x < 7) && me[x + 1]) {
+            right--;
+            for (int sqr = (from + (color ? NorthEast : SouthEast));
+                 IS_SQUARE(sqr); sqr += (color ? North : South))
+            {
+              left++;
+            }
+          }
+          if ((left + right) <= 0) {
+            me[x] |= Passed;
+            bonus = (_PASSER_BONUS[color ? (7 - y) : y] / 2);
+          }
+          else {
+            continue;
+          }
+        }
+
+        // reduce bonus if blocked
+        if (_board[from + (color ? South : North)]->type) {
+          bonus = ((bonus * 3) / 4);
+        }
+
+        // increase bonus if path to promotion is completely unblocked
+        else {
+          left = 1; // path is clear?
+          for (right = (from + (2 * (color ? South : North))); IS_SQUARE(right);
+               right += (color ? South : North))
+          {
+            if (_board[right]->type) {
+              left = 0;
+              break;
+            }
+          }
+          if (left) {
+            bonus += 8;
+            if (!(_pcount[!color] + _pcount[(!color)|Knight])) {
+              // can it outrun the enemy king?
+              left = SQR(x,(color ? 0 : 7)); // destination square
+              if ((Distance(from, left) + (COLOR(state) != color)) <
+                  (Distance(_KING[!color]->sqr, left)))
+              {
+                bonus += 200;
+              }
+            }
+          }
+        }
+
+        score += bonus;
+      }
+    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int KnightEval() {
+    assert((KnightOffset + 10) == BlackKnightOffset);
+    int score = 0;
+
+    for (int i = _pcount[color|Knight]; i--; ) {
+      assert(i >= 0);
+      const int sqr = _piece[KnightOffset + i + (10 * color)].sqr;
+      assert(IS_SQUARE(sqr));
+      assert(_board[sqr] == (_piece + KnightOffset + i + (10 * color)));
+      assert(_board[sqr]->type == (color|Knight));
+      assert(_board[sqr]->sqr == sqr);
+
+      int mob = 0;
+      for (uint64_t mvs = _knightMoves[sqr]; mvs; mvs >>= 8) {
+        if (mvs & 0xFF) {
+          const int to = ((mvs & 0xFF) - 1);
+          assert(IS_SQUARE(to));
+          assert(to != sqr);
+          mob += ((!_board[to]->type) | (COLOR(_board[to]->type) != color));
+          if (Distance(to, _KING[!color]->sqr) <= 1) {
+            atkCount[color]++;
+            atkScore[color] += 20;
+          }
+        }
+      }
+
+      assert((mob >= 0) & (mob <= 8));
+      score += (/*mob*/ - (16 * !mob) - (4 * (mob == 1)));
+    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int BishopEval() {
+    assert((BishopOffset + 10) == BlackBishopOffset);
+    int score = 0;
+
+    for (int i = _pcount[color|Bishop]; i--; ) {
+      assert(i >= 0);
+      const int sqr = _piece[BishopOffset + i + (10 * color)].sqr;
+      assert(IS_SQUARE(sqr));
+      assert(_board[sqr] == (_piece + BishopOffset + i + (10 * color)));
+      assert(_board[sqr]->type == (color|Bishop));
+      assert(_board[sqr]->sqr == sqr);
+
+      int mob = 0;
+      for (uint64_t mvs = _atk[sqr + 8]; mvs; mvs >>= 8) {
+        if (mvs & 0xFF) {
+          int to = ((mvs & 0xFF) - 1);
+          assert(IS_DIAG(Direction(sqr, to)));
+          assert(Distance(sqr, to) > 0);
+          mob += (Distance(sqr, to) - ((_board[to]->type != 0) &
+                                       (COLOR(_board[to]->type) == color)));
+        }
+      }
+
+      assert((mob >= 0) & (mob <= 13));
+      score += ((mob / 2) - (16 * !mob) - (4 * (mob == 1)));
+    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int RookEval() {
+    assert((RookOffset + 10) == BlackRookOffset);
+    int score = 0;
+
+    for (int i = _pcount[color|Rook]; i--; ) {
+      assert(i >= 0);
+      const int sqr = _piece[RookOffset + i + (10 * color)].sqr;
+      assert(IS_SQUARE(sqr));
+      assert(_board[sqr] == (_piece + RookOffset + i + (10 * color)));
+      assert(_board[sqr]->type == (color|Rook));
+      assert(_board[sqr]->sqr == sqr);
+
+      int mob = 0;
+      for (uint64_t mvs = _atk[sqr + 8]; mvs; mvs >>= 8) {
+        if (mvs & 0xFF) {
+          int to = ((mvs & 0xFF) - 1);
+          assert(IS_CROSS(Direction(sqr, to)));
+          assert(Distance(sqr, to) > 0);
+          mob += (Distance(sqr, to) - ((_board[to]->type != 0) &
+                                       (COLOR(_board[to]->type) == color)));
+        }
+      }
+      assert((mob >= 0) & (mob <= 14));
+
+      const int x = XC(sqr);
+      const int y = YC(sqr);
+
+      // bonus if on open file and inline with enemy passed/backward pawn
+      if (!fileInfo[color][x]) {
+        score += (mob +
+                  (4 * !fileInfo[!color][x]) +
+                  (8 * !!(fileInfo[!color][x] & (Backward|Passed))));
+      }
+
+      // bonus for passed pawn support
+      else if (fileInfo[color][x] & Passed) {
+        assert(!fileInfo[!color][x]);
+        assert((fileInfo[color][x] & 0xFF) >= 1);
+        assert((fileInfo[color][x] & 0xFF) <= 6);
+        assert(_board[SQR(x, (fileInfo[color][x] & 0xFF))]->type == (color|Pawn));
+        score += (mob + 4 + (4 * (color ? ((fileInfo[color][x] & 0xFF) < y)
+                                        : ((fileInfo[color][x] & 0xFF) > y))));
+      }
+
+      // bonus for backward pawn support
+      else if (fileInfo[color][x] & Backward) {
+        assert((fileInfo[color][x] & 0xFF) >= 1);
+        assert((fileInfo[color][x] & 0xFF) <= 6);
+        assert(_board[SQR(x, (fileInfo[color][x] & 0xFF))]->type == (color|Pawn));
+        score += (mob + 4);
+      }
+
+      // penalty if stuck behind own pawn after castling
+      else if ((mob < 6) && !(state & (color ? BlackCastle : WhiteCastle)) &&
+               (color ? (y > (fileInfo[color][x] & 0xFF))
+                      : (y < (fileInfo[color][x] & 0xFF))))
+      {
+        const int kx = XC(_KING[color]->sqr);
+        if (kx >= 4) {
+          score -= (16 * (x >= kx));
+        }
+        else {
+          score -= (16 * (x <= kx));
+        }
+      }
+
+      // partial mobility bonus
+      else {
+        score += (mob / 3);
+      }
+    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int QueenEval() {
+    int score = 0;
+
+//    for (int i = _pcount[color|Queen]; i--; ) {
+//      assert(i >= 0);
+//      assert((QueenOffset + 10) == BlackQueenOffset);
+//      const int sqr = _piece[QueenOffset + i + (10 * color)].sqr;
+//      assert(IS_SQUARE(sqr));
+//      assert(_board[sqr] == (_piece + QueenOffset + i + (10 * color)));
+//      assert(_board[sqr]->type == (color|Queen));
+//      assert(_board[sqr]->sqr == sqr);
+
+//      int mob = 0;
+//      for (uint64_t mvs = _atk[sqr + 8]; mvs; mvs >>= 8) {
+//        if (mvs & 0xFF) {
+//          int to = ((mvs & 0xFF) - 1);
+//          const int dir = Direction(sqr, to);
+//          assert(IS_DIR(dir));
+//          mob += ((!_board[to]->type) | (COLOR(_board[to]->type) != color));
+//          do {
+//            if (_kingDir[to + (8 * !color)] |
+//                (Distance(to, _KING[!color]->sqr) <= 1))
+//            {
+//              score += 4;
+//              atkCount[color]++;
+//              atkScore[color] += 80;
+//              break;
+//            }
+//          } while (((to -= dir) != sqr) && ++mob);
+//        }
+//      }
+
+//      assert((mob >= 0) & (mob <= 27));
+//      score += ((mob / 4) - (16 * !mob) - (4 * (mob == 1)));
+//    }
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  int KingEval() {
+    const int sqr = _KING[color]->sqr;
+    assert(IS_SQUARE(sqr));
+    assert(_board[sqr]->type == (color|King));
+    assert(_board[sqr]->sqr == sqr);
+
+    int score = _SQR[sqr + 8]; // TODO game stage
+
+    // TODO king safety
+
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  void Evaluate() {
+    assert(!_piece[0].type);
+    assert(_piece[WhiteKingOffset].type == (White|King));
+    assert(_piece[BlackKingOffset].type == (Black|King));
+    assert(_KING[White]->type == (White|King));
+    assert(_KING[Black]->type == (Black|King));
+    assert(IS_SQUARE(_KING[White]->sqr));
+    assert(IS_SQUARE(_KING[White]->sqr));
+    assert(_board[_KING[White]->sqr] == _KING[White]);
+    assert(_board[_KING[Black]->sqr] == _KING[Black]);
+    assert((_pcount[White] >= 0) & (_pcount[White] <= 13));
+    assert((_pcount[Black] >= 0) & (_pcount[Black] <= 13));
+    assert(_pcount[White] == (_pcount[White|Bishop] + _pcount[White|Rook] +
+                              _pcount[White|Queen]));
+    assert(_pcount[Black] == (_pcount[Black|Bishop] + _pcount[Black|Rook] +
+                              _pcount[Black|Queen]));
+    assert((_pcount[White|Pawn] >= 0) & (_pcount[White|Pawn] <= 8));
+    assert((_pcount[Black|Pawn] >= 0) & (_pcount[Black|Pawn] <= 8));
+    assert((_pcount[White|Knight] >= 0) & (_pcount[White|Knight] <= 10));
+    assert((_pcount[Black|Knight] >= 0) & (_pcount[Black|Knight] <= 10));
+    assert((_pcount[White|Bishop] >= 0) & (_pcount[White|Bishop] <= 10));
+    assert((_pcount[Black|Bishop] >= 0) & (_pcount[Black|Bishop] <= 10));
+    assert((_pcount[White|Rook] >= 0) & (_pcount[White|Rook] <= 10));
+    assert((_pcount[Black|Rook] >= 0) & (_pcount[Black|Rook] <= 10));
+    assert((_pcount[White|Queen] >= 0) & (_pcount[White|Queen] <= 9));
+    assert((_pcount[Black|Queen] >= 0) & (_pcount[Black|Queen] <= 9));
+
+    // TODO draw detection
+
+    atkCount[White] = 0;
+    atkCount[Black] = 0;
+    atkScore[White] = 0;
+    atkScore[Black] = 0;
+    memset(fileInfo, 0, sizeof(fileInfo));
+
+    int score = (_material[White] - _material[Black]);
+    score += PawnEval<White>();
+    score -= PawnEval<Black>();
+    score += PasserEval<White>();
+    score -= PasserEval<Black>();
+    score += KnightEval<White>();
+    score -= KnightEval<Black>();
+//    score += BishopEval<White>();
+//    score -= BishopEval<Black>();
+//    score += RookEval<White>();
+//    score -= RookEval<Black>();
+//    score += QueenEval<White>();
+//    score -= QueenEval<Black>();
+//    score += KingEval<White>();
+//    score -= KingEval<Black>();
+
+    standPat = (COLOR(state) ? -score : score);
+  }
+
   //--------------------------------------------------------------------------
   template<Color color>
   int QSearch(int alpha, int beta, const int depth) {
@@ -2682,9 +3187,8 @@ struct Node
       return _drawScore[color];
     }
 
-    // mate distance pruning and standPat beta cutoff
-    assert(standPat > (ply - Infinity));
-    int best = (chkrs ? (ply - Infinity) : standPat);
+    // mate distance pruning
+    int best = (ply - Infinity);
     alpha = std::max<int>(best, alpha);
     beta = std::min<int>((Infinity - ply + 1), beta);
     if ((alpha >= beta) | !child) {
@@ -2714,9 +3218,11 @@ struct Node
         assert(ValidateMove<color>(firstMove) == 0);
         pv[0] = firstMove;
         pvCount = 1;
-        if ((entry->score >= beta) && !firstMove.IsCapOrPromo()) {
-          IncHistory(firstMove, chkrs, entry->depth);
-          AddKiller(firstMove);
+        if ((entry->score > alpha) && !firstMove.IsCapOrPromo()) {
+          IncHistory(firstMove, checks, entry->depth);
+          if (entry->score >= beta) {
+            AddKiller(firstMove);
+          }
         }
         return entry->score;
       case HashEntry::LowerBound:
@@ -2727,16 +3233,14 @@ struct Node
           pv[0] = firstMove;
           pvCount = 1;
           if (!firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, chkrs, entry->depth);
+            IncHistory(firstMove, checks, entry->depth);
             AddKiller(firstMove);
           }
           return entry->score;
         }
-        if (entry->score > best) {
-          best = entry->score;
-          if (best > alpha) {
-            alpha = best;
-          }
+        if (!checks) {
+          best = std::max<int>(best, entry->score);
+          alpha = std::max<int>(alpha, best);
         }
         break;
       default:
@@ -2744,16 +3248,27 @@ struct Node
       }
     }
 
-    assert(alpha < beta);
-    assert(best < beta);
     assert(best <= alpha);
+    assert(alpha < beta);
+
+    // if not in check allow standPat as a move
+    if (!checks) {
+      Evaluate();
+      if (standPat >= beta) {
+        assert(!pvCount);
+        return beta;
+      }
+      best = std::max<int>(best, standPat);
+      alpha = std::max<int>(alpha, best);
+      assert(best <= alpha);
+      assert(alpha < beta);
+    }
 
     // search firstMove if we have it
-    const int orig_alpha = alpha;
     if (firstMove.Type()) {
       _stats.qexecs++;
       Exec<color>(firstMove, *child);
-      if (!chkrs & !firstMove.IsCapOrPromo() & !child->chkrs) {
+      if (!checks & !firstMove.IsCapOrPromo() & !child->checks) {
         Undo<color>(firstMove);
       }
       else {
@@ -2762,30 +3277,22 @@ struct Node
         if (_stop) {
           return beta;
         }
-        if (firstMove.GetScore() > alpha) {
-          alpha = firstMove.GetScore();
-        }
         if (firstMove.GetScore() > best) {
           best = firstMove.GetScore();
           UpdatePV(firstMove);
-          if (firstMove.GetScore() >= beta) {
-            if (!firstMove.IsCapOrPromo()) {
-              AddKiller(firstMove);
-            }
-            if (chkrs) {
-              firstMove.Score() = beta;
-              _tt.Store(positionKey, firstMove, 0, HashEntry::LowerBound, 0);
-            }
+          if (best >= beta) {
             return best;
           }
         }
+        alpha = std::max<int>(alpha, best);
+        assert(alpha < beta);
       }
     }
 
     // generate moves
     GenerateMoves<color, true>();
     if (moveCount <= 0) {
-      if (chkrs) {
+      if (checks) {
         assert(!firstMove.IsValid());
         _tt.StoreCheckmate(positionKey);
         return (ply - Infinity);
@@ -2799,72 +3306,32 @@ struct Node
     // search 'em
     Move* move;
     while ((move = GetNextMove())) {
+      assert(move->IsValid());
+      assert(checks | move->IsCapOrPromo());
       if (firstMove == (*move)) {
-        assert(firstMove.IsValid());
         continue;
       }
-
-      if (!chkrs && !move->IsCapOrPromo()) {
-        PrintBoard();
-        senjo::Output() << move->ToString();
-      }
-      assert(chkrs | move->IsCapOrPromo());
 
       _stats.qexecs++;
       Exec<color>(*move, *child);
-
-      if ((!chkrs & (depth < 0) & !move->Promo() & !child->chkrs) &&
-          ((standPat + ValueOf(move->Cap()) + 900) <= alpha)) // TODO adjust delta
-      {
-        _stats.deltaCount++;
-        Undo<color>(*move);
-        if (_stop) {
-          return beta;
-        }
-        continue;
-      }
-
       move->Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
       Undo<color>(*move);
       if (_stop) {
         return beta;
       }
-      if (move->GetScore() > alpha) {
-        alpha = move->GetScore();
-      }
       if (move->GetScore() > best) {
         best = move->GetScore();
         UpdatePV(*move);
-        if (move->GetScore() >= beta) {
-          if (!move->IsCapOrPromo()) {
-            AddKiller(*move);
-          }
-          if (chkrs) {
-            move->Score() = beta;
-            _tt.Store(positionKey, *move, 0, HashEntry::LowerBound, 0);
-          }
+        if (best >= beta) {
           return best;
         }
       }
+      alpha = std::max<int>(alpha, best);
+      assert(alpha < beta);
     }
 
     assert(best <= alpha);
     assert(alpha < beta);
-
-    if (chkrs & (pvCount > 0)) {
-      if (alpha > orig_alpha) {
-        assert(pv[0].GetScore() == alpha);
-        assert(beta > (orig_alpha + 1));
-        _tt.Store(positionKey, pv[0], 0, HashEntry::ExactScore,
-            HashEntry::FromPV);
-      }
-      else {
-        assert(alpha == orig_alpha);
-        assert(pv[0].GetScore() <= alpha);
-        pv[0].Score() = alpha;
-        _tt.Store(positionKey, pv[0], 0, HashEntry::UpperBound, 0);
-      }
-    }
 
     return best;
   }
@@ -2887,7 +3354,7 @@ struct Node
     pvCount   = 0;
 
     if (IsDraw()) {
-      return _drawScore[color];
+      return (standPat = _drawScore[color]);
     }
 
     // mate distance pruning
@@ -2901,17 +3368,20 @@ struct Node
     depth += depthChange;
 
     // check extensions
-    if ((chkrs != 0) & (depthChange <= 0) & (parent->depthChange <= 0)) {
+    if ((checks != 0) & (depthChange <= 0) & (parent->depthChange <= 0)) {
       _stats.chkExts++;
       depthChange++;
       depth++;
     }
 
+    // update standPat with full static positional evaluation
+    Evaluate();
+    int eval = standPat;
+
     // transposition table
     const bool pvNode = (type == PV);
     HashEntry* entry = _tt.Probe(positionKey);
     Move firstMove;
-    int eval = standPat;
     if (entry) {
       switch (entry->GetPrimaryFlag()) {
       case HashEntry::Checkmate: return (ply - Infinity);
@@ -2920,8 +3390,8 @@ struct Node
         assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((!pvNode | entry->HasPvFlag()) &
-            (entry->depth >= depth) & (entry->score <= alpha))
+        if (((entry->depth >= depth) & (entry->score <= alpha)) &&
+            (!pvNode | entry->HasPvFlag()))
         {
           pv[0] = firstMove;
           pvCount = 1;
@@ -2936,14 +3406,17 @@ struct Node
         firstMove.Init(entry->moveBits, entry->score);
         assert(entry->HasPvFlag());
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((entry->depth >= depth) & ((entry->score <= alpha) |
+        if ((entry->depth >= depth) & ((!pvNode) |
+                                       (entry->score <= alpha) |
                                        (entry->score >= beta)))
         {
           pv[0] = firstMove;
           pvCount = 1;
-          if ((entry->score >= beta) & !firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, chkrs, entry->depth);
-            AddKiller(firstMove);
+          if ((entry->score > alpha) & !firstMove.IsCapOrPromo()) {
+            IncHistory(firstMove, checks, entry->depth);
+            if (entry->score >= beta) {
+              AddKiller(firstMove);
+            }
           }
           return entry->score;
         }
@@ -2955,13 +3428,13 @@ struct Node
         assert(abs(entry->score) < Infinity);
         firstMove.Init(entry->moveBits, entry->score);
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((!pvNode | entry->HasPvFlag()) &
-            (entry->depth >= depth) & (entry->score >= beta))
+        if (((entry->depth >= depth) & (entry->score >= beta)) &&
+            (!pvNode | entry->HasPvFlag()))
         {
           pv[0] = firstMove;
           pvCount = 1;
           if (!firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, chkrs, entry->depth);
+            IncHistory(firstMove, checks, entry->depth);
             AddKiller(firstMove);
           }
           return entry->score;
@@ -2973,8 +3446,8 @@ struct Node
       default:
         assert(false);
       }
-      if (entry->HasExtendedFlag() & (depthChange <= 0) &
-          (parent->depthChange <= 0))
+      if (((depthChange <= 0) & (parent->depthChange <= 0)) &&
+          entry->HasExtendedFlag())
       {
         _stats.hashExts++;
         depthChange++;
@@ -2982,30 +3455,11 @@ struct Node
       }
     }
 
-    // forward pruning prerequisites
-    if (pvNode || !(pruneOK & !chkrs & (depthChange <= 0))) {
-      goto search_main;
-    }
+    goto search_main;
 
-    // razoring (fail low pruning)
-    if (((depth < 4) & (alpha < WinningScore) & !parent->chkrs) &&
-        // TODO && no pawns on 2nd/7th rank
-        ((eval + RazorDelta(depth)) <= alpha))
-    {
-      _stats.rzrCount++;
-      if ((depth <= 1) & ((eval + RazorDelta(3 * depth)) <= alpha)) {
-        _stats.rzrEarlyOut++;
-        return QSearch<color>(alpha, beta, 0);
-      }
-      const int ralpha = (alpha - RazorDelta(depth));
-      const int val = QSearch<color>(ralpha, (ralpha + 1), 0);
-      if (_stop) {
-        return beta;
-      }
-      if (val <= ralpha) {
-        _stats.rzrCutoffs++;
-        return val;
-      }
+    // forward pruning prerequisites
+    if (pvNode || !(pruneOK & !checks & (depthChange <= 0))) {
+      goto search_main;
     }
 
     // null move heuristics prerequisites
@@ -3016,68 +3470,36 @@ struct Node
     }
 
     // futility pruning (static null move pruning)
-    if ((cutNode & (depth < 7) & (abs(beta) < WinningScore)) && // TODO try different max depths
+    if ((cutNode & (depth < 5) & (abs(beta) < WinningScore)) &&
         ((eval - FutilityDelta(depth)) >= beta))
     {
       _stats.futility++;
       pvCount = 0;
-      return (eval - FutilityDelta(depth));
+      return beta; // TODO (eval - FutilityDelta(depth));
     }
 
     int searchDepth;
-    if (depth > 1) {
-      if (eval >= beta) {
-        // null move pruning
-        ExecNullMove<color>(*child);
-        child->pruneOK = false;
-        child->depthChange = 0;
-        searchDepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
-        eval = (searchDepth > 0)
-            ? -child->Search<NonPV, !color>(-beta, -alpha, searchDepth, false)
-            : -child->QSearch<!color>(-beta, -alpha, 0);
-        if (_stop) {
-          return beta;
-        }
-        if (eval >= beta) {
-          // TODO do verification search if depth reduction > 4
-          _stats.nmCutoffs++;
-          pvCount = 0;
-          return (standPat >= beta) ? standPat : beta; // do not return eval
-        }
+    if ((depth > 1) & (eval >= beta)) {
+      // null move pruning
+      ExecNullMove<color>(*child);
+      child->pruneOK = false;
+      child->depthChange = 0;
+      searchDepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
+      eval = (searchDepth > 0)
+          ? -child->Search<NonPV, !color>(-beta, -alpha, searchDepth, false)
+          : -child->QSearch<!color>(-beta, -alpha, 0);
+      if (_stop) {
+        return beta;
       }
-//      else if ((cutNode & (depth > 2) & (eval >= -parent->standPat) &
-//                !lastMove.IsCapOrPromo()) &
-//               !((lastMove.Type() == PawnMove) &
-//                 (YC(lastMove.To()) == (color ? 6 : 1))) &&
-//               !parent->InCheck<!color>())
-//      {
-//        // null move reductions
-//        _stats.nmrCandidates++;
-//        ExecNullMove<color>(*child);
-//        eval = -child->QSearch<!color>(-standPat, (1 - standPat), 0);
-//        if (_stop) {
-//          return beta;
-//        }
-//        if (eval >= standPat) {
-//          // last move looks pretty quiet and we're already expecting
-//          // to be able to refute it (this is a cutNode) so we're betting we
-//          // can reduce depth and still refute it.  if not, we spend less time
-//          // determining that the last move is actually pretty good.
-//          // but this can backfire if:
-//          // 1) reduced depth fails low here (fails high in parent)
-//          // 2) parent failes low on re-search at full depth
-//          // example stats: 4896 nmr candidates, 3254 reduced (66.4624%), 114 backfires (3.50338%)
-////          senjo::Output() << parent->moveIndex << ", " << lastMove.ToString()
-////                          << ", " << -parent->standPat
-////                          << ", " << eval
-////                          << ", " << standPat;
-////          PrintBoard();
-//          _stats.nmReductions++;
-//          depthChange -= (1 + (eval >= -parent->standPat));
-//          depth -= (1 + (eval >= -parent->standPat));
-//        }
-//      }
+      if (eval >= beta) {
+        // TODO do verification search if depth reduction > 4
+        _stats.nmCutoffs++;
+        pvCount = 0;
+        return (standPat >= beta) ? standPat : beta; // do not return eval
+      }
     }
+
+search_main:
     pruneOK = false;
 
     // internal iterative deepening
@@ -3092,17 +3514,19 @@ struct Node
       if (_stop | !pvCount) {
         return eval;
       }
+      assert(moveCount > 0);
+      assert(pvCount > 0);
       assert(pv[0].IsValid());
       firstMove = pv[0];
     }
 
-search_main:
-
     // make sure firstMove is populated
-    if (!firstMove.Type()) {
+    else if (!firstMove.Type()) {
+      assert(!moveCount);
+      assert(!pvCount);
       GenerateMoves<color, false>();
       if (moveCount <= 0) {
-        if (chkrs) {
+        if (checks) {
           _tt.StoreCheckmate(positionKey);
           return (ply - Infinity);
         }
@@ -3125,39 +3549,19 @@ search_main:
     Exec<color>(firstMove, *child);
     child->pruneOK = true;
     child->depthChange = 0;
-    eval = (depth > 1)
+    best = (depth > 1)
         ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), !cutNode)
         : -child->QSearch<!color>(-beta, -alpha, 0);
-    assert(!pvNode || (child->depthChange >= 0));
-    assert((depth + child->depthChange) >= 0);
+    assert(child->depthChange >= 0);
+    Undo<color>(firstMove);
     if (_stop) {
-      Undo<color>(firstMove);
       return beta;
     }
-    if ((eval > alpha) & (child->depthChange < 0)) {
-      assert(!pvNode);
-      assert(depth > 1);
-      child->pruneOK = false;
-      child->depthChange = 0;
-      eval = -child->Search<type, !color>(-beta, -alpha, (depth - 1), false);
-      if (_stop) {
-        Undo<color>(firstMove);
-        return beta;
-      }
-    }
-    Undo<color>(firstMove);
-    int pvDepth = (depth + ((child->depthChange < 0) ? child->depthChange : 0));
-    best = eval;
+    int pvDepth = depth;
     UpdatePV(firstMove);
-    if (eval > alpha) {
-      alpha = eval;
-    }
-    else if (!firstMove.IsCapOrPromo()) {
-      DecHistory(firstMove, chkrs);
-    }
-    if (eval >= beta) {
+    if (best >= beta) {
       if (!firstMove.IsCapOrPromo()) {
-        IncHistory(firstMove, chkrs, pvDepth);
+        IncHistory(firstMove, checks, pvDepth);
         AddKiller(firstMove);
       }
       firstMove.Score() = beta;
@@ -3165,6 +3569,12 @@ search_main:
                 (((depthChange > 0) ? HashEntry::Extended : 0) |
                  (pvNode ? HashEntry::FromPV : 0)));
       return best;
+    }
+    if (best > alpha) {
+      alpha = best;
+    }
+    else if (!firstMove.IsCapOrPromo()) {
+      DecHistory(firstMove, checks);
     }
 
     // generate moves if we haven't done so already
@@ -3181,12 +3591,12 @@ search_main:
     }
 
     // search remaining moves
-    const bool lmr_ok = ((cutNode | !pvNode) & !chkrs & (depth > 2));
+    const bool lmr_ok = ((cutNode | !pvNode) & !checks & (depth > 2));
     Move* move;
     moveIndex = 0;
     while ((move = GetNextMove())) {
+      assert(move->IsValid());
       if (firstMove == (*move)) {
-        assert(firstMove.IsValid());
         continue;
       }
 
@@ -3197,7 +3607,7 @@ search_main:
       if (lmr_ok) _stats.lmCandidates++;
       if (lmr_ok &
           !move->IsCapOrPromo() &
-          !child->chkrs &
+          !child->checks &
           !IsKiller(*move) &
           (_hist[move->HistoryIndex()] < 0) &
           (!pvNode || (moveIndex > 7)))
@@ -3242,22 +3652,15 @@ search_main:
       if (_stop) {
         return beta;
       }
-      if (eval > alpha) {
-        alpha = eval;
-        _stats.lmAlphaIncs++;
-        assert(child->depthChange >= 0);
-      }
-      else if (!move->IsCapOrPromo()) {
-        DecHistory(*move, chkrs);
-      }
       if (eval > best) {
         best = eval;
         UpdatePV(*move);
+        _stats.lmAlphaIncs++;
         assert((depth + child->depthChange) >= 0);
         pvDepth = (depth + ((child->depthChange < 0) ? child->depthChange : 0));
         if (eval >= beta) {
           if (!move->IsCapOrPromo()) {
-            IncHistory(*move, chkrs, pvDepth);
+            IncHistory(*move, checks, pvDepth);
             AddKiller(*move);
           }
           move->Score() = beta;
@@ -3266,6 +3669,14 @@ search_main:
                      (pvNode ? HashEntry::FromPV : 0)));
           return best;
         }
+      }
+      if (eval > alpha) {
+        alpha = eval;
+        _stats.lmAlphaIncs++;
+        assert(child->depthChange >= 0);
+      }
+      else if (!move->IsCapOrPromo()) {
+        DecHistory(*move, checks);
       }
     }
 
@@ -3279,7 +3690,7 @@ search_main:
         assert(pvNode);
         assert(pvDepth == depth);
         if (!pv[0].IsCapOrPromo()) {
-          IncHistory(pv[0], chkrs, pvDepth);
+          IncHistory(pv[0], checks, pvDepth);
         }
         _tt.Store(positionKey, pv[0], pvDepth, HashEntry::ExactScore,
             (((depthChange > 0) ? HashEntry::Extended : 0) |
@@ -3351,6 +3762,9 @@ search_main:
       return pv[0].ToString();
     }
 
+    // get full static evaluation
+    Evaluate();
+
     Move* move;
     bool  newPV = true;
     bool  showPV = true;
@@ -3369,7 +3783,9 @@ search_main:
       beta  = std::min<int>((best + delta), +Infinity);
 
       for (moveIndex = 0; !_stop && (moveIndex < moveCount); ++moveIndex) {
-        move      = (moves + moveIndex);
+        move = (moves + moveIndex);
+        assert(move->IsValid());
+
         _currmove = move->ToString();
         _movenum  = (moveIndex + 1);
 
@@ -3599,7 +4015,7 @@ const char* Clunk::SetPosition(const char* fen) {
   memset(_piece, 0, sizeof(_piece));
   memset(_pcount, 0, sizeof(_pcount));
   memset(_material, 0, sizeof(_material));
-  memset(_atkd, 0, sizeof(_atkd));
+  memset(_atk, 0, sizeof(_atk));
   _seen.clear();
 
   _board[None] = _EMPTY;
@@ -3613,7 +4029,7 @@ const char* Clunk::SetPosition(const char* fen) {
   root->positionKey = 0ULL;
   root->lastMove.Clear();
   root->standPat = 0;
-  root->chkrs = 0;
+  root->checks = 0;
 
   const char* p = fen;
   for (int y = 7; y >= 0; --y) {
