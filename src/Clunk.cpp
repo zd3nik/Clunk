@@ -1510,7 +1510,7 @@ struct Node
                 ((to + (color ? SouthEast : NorthEast)) == _KING[!color]->sqr))
             {
               score = (_PAWN_SQR[to + (8 * color)] -
-                       _PAWN_SQR[from + (8 * color)] + 5);
+                       _PAWN_SQR[from + (8 * color)] + 25);
               AddMove(PawnMove, from, to, score);
             }
           }
@@ -1530,7 +1530,7 @@ struct Node
                     ((to + (color ? SouthEast : NorthEast)) == _KING[!color]->sqr))
                 {
                   score = (_PAWN_SQR[to + (8 * color)] -
-                           _PAWN_SQR[from + (8 * color)] + 10);
+                           _PAWN_SQR[from + (8 * color)] + 30);
                   AddMove(PawnLung, from, to, score);
                 }
               }
@@ -1574,7 +1574,7 @@ struct Node
       if (!cap) {
         if (qsearch) {
           if (!depth && (kdir | IsKnightMove(_KING[!color]->sqr, to))) {
-            score = (_SQR[to] - _SQR[from]);
+            score = (_SQR[to] - _SQR[from] + 20);
             AddMove(KnightMove, from, to, score);
           }
         }
@@ -1621,7 +1621,7 @@ struct Node
 
   //---------------------------------------------------------------------------
   void GetSliderMoves(const Color color, const MoveType type,
-                      uint64_t mvs, const int from, const int depth)
+                      uint64_t mvs, const int from)
   {
     assert(!checks);
     assert(IS_SQUARE(from));
@@ -1657,6 +1657,64 @@ struct Node
         }
       }
       mvs >>= 8;
+    }
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  void GetSliderChecks() {
+    const int king = _KING[!color]->sqr;
+    assert(IS_SQUARE(king));
+    assert(_board[king] == _KING[!color]);
+
+    int pinDir;
+    for (uint64_t mvs = _queenKing[king]; mvs; mvs >>= 8) {
+      assert(mvs & 0xFF);
+      const int end = ((mvs & 0xFF) - 1);
+      const int dir = Direction(king, end);
+      assert(IS_DIR(dir));
+      for (int to = (king + dir); _board[to] == _EMPTY; to += dir) {
+        assert(IS_SQUARE(to));
+        assert(Direction(king, to) == dir);
+        for (uint64_t tmp = _atk[to]; tmp; tmp >>= 8) {
+          if (tmp & 0xFF) {
+            const int from = ((tmp & 0xFF) - 1);
+            assert(IS_SQUARE(from));
+            assert(_board[from] >= _FIRST_SLIDER);
+            assert(IS_SLIDER(_board[from]->type));
+            switch (_board[from]->type) {
+            case (color|Bishop):
+              assert(IS_DIAG(Direction(from, to)));
+              if (IS_DIAG(dir)) {
+                pinDir = GetPinDir(color, from);
+                if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+                  AddMove(BishopMove, from, to, 0);
+                }
+              }
+              break;
+            case (color|Rook):
+              assert(IS_CROSS(Direction(from, to)));
+              if (IS_CROSS(dir)) {
+                pinDir = GetPinDir(color, from);
+                if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+                  AddMove(RookMove, from, to, 0);
+                }
+              }
+              break;
+            case (color|Queen):
+              assert(IS_DIR(Direction(from, to)));
+              pinDir = GetPinDir(color, from);
+              if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
+                AddMove(QueenMove, from, to, 0);
+              }
+              break;
+            }
+          }
+        }
+        if (to == end) {
+          break;
+        }
+      }
     }
   }
 
@@ -2019,7 +2077,7 @@ struct Node
         GetSliderCaptures(color, BishopMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, BishopMove, _bishopRook[from], from, depth);
+        GetSliderMoves(color, BishopMove, _bishopRook[from], from);
       }
     }
 
@@ -2030,7 +2088,7 @@ struct Node
         GetSliderCaptures(color, RookMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, RookMove, _bishopRook[from + 8], from, depth);
+        GetSliderMoves(color, RookMove, _bishopRook[from + 8], from);
       }
     }
 
@@ -2041,8 +2099,12 @@ struct Node
         GetSliderCaptures(color, QueenMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, QueenMove, _queenKing[from], from, depth);
+        GetSliderMoves(color, QueenMove, _queenKing[from], from);
       }
+    }
+
+    if (qsearch && _pcount[!color] && !depth) {
+      GetSliderChecks<color>();
     }
 
     GetKingMoves<color, qsearch>(depth);
