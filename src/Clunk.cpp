@@ -87,6 +87,7 @@ const uint64_t _CROSS_DIRS = 0x00FF00FFFF00FF00ULL;
 //-----------------------------------------------------------------------------
 char               _dir[128][128] = {0};
 char               _dist[128][128] = {0};
+char               _knightDir[128][128] = {0};
 char               _kingDir[128] = {0};
 Piece*             _board[128] = {0};
 Piece              _piece[PieceListSize];
@@ -139,10 +140,21 @@ void InitSearch(const Color colorToMove, const uint64_t startTime) {
 void InitDistDir() {
   memset(_dir, 0, sizeof(_dir));
   memset(_dist, 0, sizeof(_dist));
+  memset(_knightDir, 0, sizeof(_knightDir));
+  const int knightDirs[8] = {
+    KnightMove1, KnightMove2, KnightMove3, KnightMove4,
+    KnightMove5, KnightMove6, KnightMove7, KnightMove8
+  };
   for (int a = A1; a <= H8; ++a) {
     if (BAD_SQR(a)) {
       a += 7;
       continue;
+    }
+    for (int i = 0; i < 8; ++i) {
+      const int to = (a + knightDirs[i]);
+      if (IS_SQUARE(to)) {
+        _knightDir[a][to] = 1;
+      }
     }
     for (int b = A1; b <= H8; ++b) {
       if (BAD_SQR(b)) {
@@ -212,6 +224,13 @@ inline int Direction(const int from, const int to) {
   assert(IS_SQUARE(from));
   assert(IS_SQUARE(to));
   return _dir[from][to];
+}
+
+//-----------------------------------------------------------------------------
+inline int IsKnightMove(const int from, const int to) {
+  assert(IS_SQUARE(from));
+  assert(IS_SQUARE(to));
+  return _knightDir[from][to];
 }
 
 //-----------------------------------------------------------------------------
@@ -1161,8 +1180,16 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
-  void PrintBoard() {
-    Evaluate();
+  void ClearKillers() {
+    killer[0].Clear();
+    killer[1].Clear();
+  }
+
+  //---------------------------------------------------------------------------
+  void PrintBoard(const bool do_eval) {
+    if (do_eval) {
+      Evaluate();
+    }
     senjo::Output out(senjo::Output::NoPrefix);
     out << '\n';
     for (int y = 7; y >= 0; --y) {
@@ -1359,13 +1386,31 @@ struct Node
   inline int GetPinDir(const Color color, const int from) {
     assert(IS_SQUARE(from));
     const int kdir = _kingDir[from + (color * 8)];
-    if (kdir && _atk[from]) {
+    if ((kdir != 0) & (_atk[from] != 0ULL)) {
       const int tmp = ((_atk[from] >> DirShift(kdir)) & 0xFF);
       if (tmp) {
         assert(IS_SQUARE(tmp - 1));
         assert(_board[tmp - 1] >= _FIRST_SLIDER);
         assert(IS_SLIDER(_board[tmp - 1]->type));
         if (COLOR(_board[tmp - 1]->type) != color) {
+          return abs(kdir);
+        }
+      }
+    }
+    return 0;
+  }
+
+  //---------------------------------------------------------------------------
+  inline int GetDiscoverDir(const Color color, const int from) {
+    assert(IS_SQUARE(from));
+    const int kdir = _kingDir[from + (8 * !color)];
+    if ((kdir != 0) & (_atk[from] != 0ULL)) {
+      const int tmp = ((_atk[from] >> DirShift(kdir)) & 0xFF);
+      if (tmp) {
+        assert(IS_SQUARE(tmp - 1));
+        assert(_board[tmp - 1] >= _FIRST_SLIDER);
+        assert(IS_SLIDER(_board[tmp - 1]->type));
+        if (COLOR(_board[tmp - 1]->type) == color) {
           return abs(kdir);
         }
       }
@@ -1385,12 +1430,19 @@ struct Node
     assert(abs(score) < Infinity);
     assert(moveCount >= 0);
     assert((moveCount + 1) < MaxMoves);
-    moves[moveCount++].Set(type, from, to, cap, promo, score);
+    Move& move = moves[moveCount++];
+    move.Set(type, from, to, cap, promo, score);
+    if (IsKiller(move)) {
+      move.Score() += 50;
+    }
+    else if (!move.IsCapOrPromo()) {
+      move.Score() += _hist[move.HistoryIndex()];
+    }
   }
 
   //---------------------------------------------------------------------------
   template<Color color, bool qsearch>
-  void GetPawnMoves(const int from) {
+  void GetPawnMoves(const int from, const int depth) {
     assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
@@ -1399,6 +1451,15 @@ struct Node
     const int pinDir = GetPinDir(color, from);
     int score;
     int to;
+
+    int kdir = 0;
+    if (qsearch && !depth) {
+      kdir = GetDiscoverDir(color, from);
+      if (abs(kdir) == North) {
+        kdir = 0;
+      }
+    }
+
     for (uint64_t mvs = _pawnCaps[from + (color * 8)]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
       to = ((mvs & 0xFF) - 1);
@@ -1429,29 +1490,55 @@ struct Node
         }
       }
     }
-    if (!qsearch || (YC(from) == (color ? 1 : 6))) {
+    if (!qsearch || ((!depth) | (YC(from) == (color ? 1 : 6)))) {
       to = (from + (color ? South : North));
       if (pinDir && (abs(Direction(from, to)) != pinDir)) {
         return;
       }
       if (_board[to] == _EMPTY) {
-        if (qsearch || (YC(to) == (color ? 0 : 7))) {
+        if (YC(to) == (color ? 0 : 7)) {
           AddMove(PawnMove, from, to, QueenValue,  0, (color|Queen));
           AddMove(PawnMove, from, to, RookValue,   0, (color|Rook));
           AddMove(PawnMove, from, to, BishopValue, 0, (color|Bishop));
           AddMove(PawnMove, from, to, KnightValue, 0, (color|Knight));
         }
         else {
-          score = (_PAWN_SQR[to + (8 * color)] -
-                   _PAWN_SQR[from + (8 * color)]);
-          AddMove(PawnMove, from, to, score);
+          if (qsearch) {
+            assert(!depth);
+            if (kdir |
+                ((to + (color ? SouthWest : NorthWest)) == _KING[!color]->sqr) |
+                ((to + (color ? SouthEast : NorthEast)) == _KING[!color]->sqr))
+            {
+              score = (_PAWN_SQR[to + (8 * color)] -
+                       _PAWN_SQR[from + (8 * color)] + 5);
+              AddMove(PawnMove, from, to, score);
+            }
+          }
+          else {
+            score = (_PAWN_SQR[to + (8 * color)] -
+                     _PAWN_SQR[from + (8 * color)] + 5);
+            AddMove(PawnMove, from, to, score);
+          }
           if (YC(from) == (color ? 6 : 1)) {
             to += (color ? South : North);
             assert(IS_SQUARE(to));
             if (_board[to] == _EMPTY) {
-              score = (_PAWN_SQR[to + (8 * color)] -
-                       _PAWN_SQR[from + (8 * color)]);
-              AddMove(PawnLung, from, to, score);
+              if (qsearch) {
+                assert(!depth);
+                if (kdir |
+                    ((to + (color ? SouthWest : NorthWest)) == _KING[!color]->sqr) |
+                    ((to + (color ? SouthEast : NorthEast)) == _KING[!color]->sqr))
+                {
+                  score = (_PAWN_SQR[to + (8 * color)] -
+                           _PAWN_SQR[from + (8 * color)] + 10);
+                  AddMove(PawnLung, from, to, score);
+                }
+              }
+              else {
+                score = (_PAWN_SQR[to + (8 * color)] -
+                         _PAWN_SQR[from + (8 * color)] + 10);
+                AddMove(PawnLung, from, to, score);
+              }
             }
           }
         }
@@ -1461,7 +1548,7 @@ struct Node
 
   //---------------------------------------------------------------------------
   template<bool qsearch>
-  void GetKnightMoves(const Color color, const int from) {
+  void GetKnightMoves(const Color color, const int from, const int depth) {
     assert(!checks);
     assert(IS_SQUARE(from));
     assert(_board[from] != _EMPTY);
@@ -1470,6 +1557,12 @@ struct Node
     if (GetPinDir(color, from)) {
       return;
     }
+
+    int kdir = 0;
+    if (qsearch && !depth) {
+      kdir = GetDiscoverDir(color, from);
+    }
+
     int score;
     for (uint64_t mvs = _knightMoves[from]; mvs; mvs >>= 8) {
       assert(mvs & 0xFF);
@@ -1479,7 +1572,13 @@ struct Node
       const int cap = _board[to]->type;
       assert(cap || (_board[to] == _EMPTY));
       if (!cap) {
-        if (!qsearch) {
+        if (qsearch) {
+          if (!depth && (kdir | IsKnightMove(_KING[!color]->sqr, to))) {
+            score = (_SQR[to] - _SQR[from]);
+            AddMove(KnightMove, from, to, score);
+          }
+        }
+        else {
           score = (_SQR[to] - _SQR[from]);
           AddMove(KnightMove, from, to, score);
         }
@@ -1522,7 +1621,7 @@ struct Node
 
   //---------------------------------------------------------------------------
   void GetSliderMoves(const Color color, const MoveType type,
-                      uint64_t mvs, const int from)
+                      uint64_t mvs, const int from, const int depth)
   {
     assert(!checks);
     assert(IS_SQUARE(from));
@@ -1563,13 +1662,18 @@ struct Node
 
   //---------------------------------------------------------------------------
   template<Color color, bool qsearch>
-  void GetKingMoves() {
+  void GetKingMoves(const int depth) {
     assert(!checks);
     assert(_KING[color]->type == (color|King));
 
     const int from = _KING[color]->sqr;
     assert(IS_SQUARE(from));
     assert(_board[from] == _KING[color]);
+
+    int kdir = 0;
+    if (qsearch && !depth) {
+      kdir = GetDiscoverDir(color, from);
+    }
 
     int score;
     for (uint64_t mvs = _queenKing[from + 8]; mvs; mvs >>= 8) {
@@ -1580,10 +1684,15 @@ struct Node
       if (qsearch) {
         const int cap = _board[to]->type;
         assert(cap || (_board[to] == _EMPTY));
-        if ((cap != 0) & (COLOR(cap) != color)) {
-          if (!AttackedBy<!color>(to)) {
+        if (cap) {
+          if ((COLOR(cap) != color) && !AttackedBy<!color>(to)) {
             score = (ValueOf(cap) - 80);
             AddMove(KingMove, from, to, score, cap);
+          }
+        }
+        else if (kdir && (kdir != abs(Direction(from, to)))) {
+          if (!AttackedBy<!color>(to)) {
+            AddMove(KingMove, from, to, 0);
           }
         }
       }
@@ -1850,7 +1959,7 @@ struct Node
 
   //---------------------------------------------------------------------------
   template<Color color, bool qsearch>
-  void GenerateMoves() {
+  void GenerateMoves(const int depth) {
     assert(!_piece[0].type);
     assert(_piece[WhiteKingOffset].type == (White|King));
     assert(_piece[BlackKingOffset].type == (Black|King));
@@ -1894,13 +2003,13 @@ struct Node
     for (int i = _pcount[color|Pawn]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackPawnOffset : PawnOffset) + i].sqr;
-      GetPawnMoves<color, qsearch>(from);
+      GetPawnMoves<color, qsearch>(from, depth);
     }
 
     for (int i = _pcount[color|Knight]; i--; ) {
       assert(i >= 0);
       from = _piece[(color ? BlackKnightOffset : KnightOffset) + i].sqr;
-      GetKnightMoves<qsearch>(color, from);
+      GetKnightMoves<qsearch>(color, from, depth);
     }
 
     for (int i = _pcount[color|Bishop]; i--; ) {
@@ -1910,7 +2019,7 @@ struct Node
         GetSliderCaptures(color, BishopMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, BishopMove, _bishopRook[from], from);
+        GetSliderMoves(color, BishopMove, _bishopRook[from], from, depth);
       }
     }
 
@@ -1921,7 +2030,7 @@ struct Node
         GetSliderCaptures(color, RookMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, RookMove, _bishopRook[from + 8], from);
+        GetSliderMoves(color, RookMove, _bishopRook[from + 8], from, depth);
       }
     }
 
@@ -1932,11 +2041,11 @@ struct Node
         GetSliderCaptures(color, QueenMove, _atk[from + 8], from);
       }
       else {
-        GetSliderMoves(color, QueenMove, _queenKing[from], from);
+        GetSliderMoves(color, QueenMove, _queenKing[from], from, depth);
       }
     }
 
-    GetKingMoves<color, qsearch>();
+    GetKingMoves<color, qsearch>(depth);
   }
 
   //---------------------------------------------------------------------------
@@ -2637,7 +2746,7 @@ struct Node
   //---------------------------------------------------------------------------
   template<Color color>
   uint64_t PerftSearch(const int depth) {
-    GenerateMoves<color, false>();
+    GenerateMoves<color, false>(depth);
     if (!child || (depth <= 1)) {
       return moveCount;
     }
@@ -2660,7 +2769,7 @@ struct Node
     assert(child);
     assert(VerifyAttacks(true));
 
-    GenerateMoves<color, false>();
+    GenerateMoves<color, false>(depth);
     std::sort(moves, (moves + moveCount), Move::LexicalCompare);
 
     uint64_t total = 0;
@@ -2802,9 +2911,9 @@ struct Node
         score -= 4;
         file[x] |= Backward;
       }
-      else if ((left == 0) | (left == 1) | (right == 0) | (right == 1)) {
-        file[x] |= Supported;
-      }
+//      else if ((left == 0) | (left == 1) | (right == 0) | (right == 1)) {
+//        file[x] |= Supported;
+//      }
     }
 
     return score;
@@ -3153,10 +3262,10 @@ struct Node
     int score = (_material[White] - _material[Black]);
     score += PawnEval<White>();
     score -= PawnEval<Black>();
-    score += PasserEval<White>();
-    score -= PasserEval<Black>();
-    score += KnightEval<White>();
-    score -= KnightEval<Black>();
+//    score += PasserEval<White>();
+//    score -= PasserEval<Black>();
+//    score += KnightEval<White>();
+//    score -= KnightEval<Black>();
 //    score += BishopEval<White>();
 //    score -= BishopEval<Black>();
 //    score += RookEval<White>();
@@ -3197,56 +3306,56 @@ struct Node
 
     // transposition table
     Move firstMove;
-    HashEntry* entry = _tt.Probe(positionKey);
-    if (entry) {
-      switch (entry->GetPrimaryFlag()) {
-      case HashEntry::Checkmate: return (ply - Infinity);
-      case HashEntry::Stalemate: return _drawScore[color];
-      case HashEntry::UpperBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(ValidateMove<color>(firstMove) == 0);
-        if (entry->score <= alpha) {
-          pv[0] = firstMove;
-          pvCount = 1;
-          return entry->score;
-        }
-        break;
-      case HashEntry::ExactScore:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(ValidateMove<color>(firstMove) == 0);
-        pv[0] = firstMove;
-        pvCount = 1;
-        if ((entry->score > alpha) && !firstMove.IsCapOrPromo()) {
-          IncHistory(firstMove, checks, entry->depth);
-          if (entry->score >= beta) {
-            AddKiller(firstMove);
-          }
-        }
-        return entry->score;
-      case HashEntry::LowerBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(ValidateMove<color>(firstMove) == 0);
-        if (entry->score >= beta) {
-          pv[0] = firstMove;
-          pvCount = 1;
-          if (!firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, checks, entry->depth);
-            AddKiller(firstMove);
-          }
-          return entry->score;
-        }
-        if (!checks) {
-          best = std::max<int>(best, entry->score);
-          alpha = std::max<int>(alpha, best);
-        }
-        break;
-      default:
-        assert(false);
-      }
-    }
+//    HashEntry* entry = _tt.Probe(positionKey);
+//    if (entry) {
+//      switch (entry->GetPrimaryFlag()) {
+//      case HashEntry::Checkmate: return (ply - Infinity);
+//      case HashEntry::Stalemate: return _drawScore[color];
+//      case HashEntry::UpperBound:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        if (entry->score <= alpha) {
+//          pv[0] = firstMove;
+//          pvCount = 1;
+//          return entry->score;
+//        }
+//        break;
+//      case HashEntry::ExactScore:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        pv[0] = firstMove;
+//        pvCount = 1;
+//        if ((entry->score > alpha) && !firstMove.IsCapOrPromo()) {
+//          IncHistory(firstMove, checks, entry->depth);
+//          if (entry->score >= beta) {
+//            AddKiller(firstMove);
+//          }
+//        }
+//        return entry->score;
+//      case HashEntry::LowerBound:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        if (entry->score >= beta) {
+//          pv[0] = firstMove;
+//          pvCount = 1;
+//          if (!firstMove.IsCapOrPromo()) {
+//            IncHistory(firstMove, checks, entry->depth);
+//            AddKiller(firstMove);
+//          }
+//          return entry->score;
+//        }
+//        if (!checks) {
+//          best = std::max<int>(best, entry->score);
+//          alpha = std::max<int>(alpha, best);
+//        }
+//        break;
+//      default:
+//        assert(false);
+//      }
+//    }
 
     assert(best <= alpha);
     assert(alpha < beta);
@@ -3290,7 +3399,7 @@ struct Node
     }
 
     // generate moves
-    GenerateMoves<color, true>();
+    GenerateMoves<color, true>(depth);
     if (moveCount <= 0) {
       if (checks) {
         assert(!firstMove.IsValid());
@@ -3307,13 +3416,17 @@ struct Node
     Move* move;
     while ((move = GetNextMove())) {
       assert(move->IsValid());
-      assert(checks | move->IsCapOrPromo());
       if (firstMove == (*move)) {
         continue;
       }
 
       _stats.qexecs++;
       Exec<color>(*move, *child);
+      if (!(checks | move->IsCapOrPromo() | (child->checks && !depth))) {
+        PrintBoard(false);
+        senjo::Output() << move->ToString();
+      }
+      assert(checks | move->IsCapOrPromo() | (child->checks && !depth));
       move->Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
       Undo<color>(*move);
       if (_stop) {
@@ -3378,129 +3491,127 @@ struct Node
     Evaluate();
     int eval = standPat;
 
-    // transposition table
-    const bool pvNode = (type == PV);
-    HashEntry* entry = _tt.Probe(positionKey);
     Move firstMove;
-    if (entry) {
-      switch (entry->GetPrimaryFlag()) {
-      case HashEntry::Checkmate: return (ply - Infinity);
-      case HashEntry::Stalemate: return _drawScore[color];
-      case HashEntry::UpperBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(ValidateMove<color>(firstMove) == 0);
-        if (((entry->depth >= depth) & (entry->score <= alpha)) &&
-            (!pvNode | entry->HasPvFlag()))
-        {
-          pv[0] = firstMove;
-          pvCount = 1;
-          return entry->score;
-        }
-        if ((entry->depth >= (depth - 3)) & (entry->score < eval)) {
-          eval = entry->score;
-        }
-        break;
-      case HashEntry::ExactScore:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(entry->HasPvFlag());
-        assert(ValidateMove<color>(firstMove) == 0);
-        if ((entry->depth >= depth) & ((!pvNode) |
-                                       (entry->score <= alpha) |
-                                       (entry->score >= beta)))
-        {
-          pv[0] = firstMove;
-          pvCount = 1;
-          if ((entry->score > alpha) & !firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, checks, entry->depth);
-            if (entry->score >= beta) {
-              AddKiller(firstMove);
-            }
-          }
-          return entry->score;
-        }
-        if (entry->depth >= (depth - 3)) {
-          eval = entry->score;
-        }
-        break;
-      case HashEntry::LowerBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
-        assert(ValidateMove<color>(firstMove) == 0);
-        if (((entry->depth >= depth) & (entry->score >= beta)) &&
-            (!pvNode | entry->HasPvFlag()))
-        {
-          pv[0] = firstMove;
-          pvCount = 1;
-          if (!firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, checks, entry->depth);
-            AddKiller(firstMove);
-          }
-          return entry->score;
-        }
-        if ((entry->depth >= (depth - 3)) & (entry->score > eval)) {
-          eval = entry->score;
-        }
-        break;
-      default:
-        assert(false);
-      }
-      if (((depthChange <= 0) & (parent->depthChange <= 0)) &&
-          entry->HasExtendedFlag())
-      {
-        _stats.hashExts++;
-        depthChange++;
-        depth++;
-      }
-    }
+    const bool pvNode = (type == PV);
+    goto search_main; // TODO remove this
 
-    goto search_main;
+    // transposition table
+//    HashEntry* entry = _tt.Probe(positionKey);
+//    if (entry) {
+//      switch (entry->GetPrimaryFlag()) {
+//      case HashEntry::Checkmate: return (ply - Infinity);
+//      case HashEntry::Stalemate: return _drawScore[color];
+//      case HashEntry::UpperBound:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        if (((entry->depth >= depth) & (entry->score <= alpha)) &&
+//            (!pvNode | entry->HasPvFlag()))
+//        {
+//          pv[0] = firstMove;
+//          pvCount = 1;
+//          return entry->score;
+//        }
+//        if ((entry->depth >= (depth - 3)) & (entry->score < eval)) {
+//          eval = entry->score;
+//        }
+//        break;
+//      case HashEntry::ExactScore:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(entry->HasPvFlag());
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        if ((entry->depth >= depth) & ((!pvNode) |
+//                                       (entry->score <= alpha) |
+//                                       (entry->score >= beta)))
+//        {
+//          pv[0] = firstMove;
+//          pvCount = 1;
+//          if ((entry->score > alpha) & !firstMove.IsCapOrPromo()) {
+//            IncHistory(firstMove, checks, entry->depth);
+//            if (entry->score >= beta) {
+//              AddKiller(firstMove);
+//            }
+//          }
+//          return entry->score;
+//        }
+//        if (entry->depth >= (depth - 3)) {
+//          eval = entry->score;
+//        }
+//        break;
+//      case HashEntry::LowerBound:
+//        assert(abs(entry->score) < Infinity);
+//        firstMove.Init(entry->moveBits, entry->score);
+//        assert(ValidateMove<color>(firstMove) == 0);
+//        if (((entry->depth >= depth) & (entry->score >= beta)) &&
+//            (!pvNode | entry->HasPvFlag()))
+//        {
+//          pv[0] = firstMove;
+//          pvCount = 1;
+//          if (!firstMove.IsCapOrPromo()) {
+//            IncHistory(firstMove, checks, entry->depth);
+//            AddKiller(firstMove);
+//          }
+//          return entry->score;
+//        }
+//        if ((entry->depth >= (depth - 3)) & (entry->score > eval)) {
+//          eval = entry->score;
+//        }
+//        break;
+//      default:
+//        assert(false);
+//      }
+//      if (((depthChange <= 0) & (parent->depthChange <= 0)) &&
+//          entry->HasExtendedFlag())
+//      {
+//        _stats.hashExts++;
+//        depthChange++;
+//        depth++;
+//      }
+//    }
 
-    // forward pruning prerequisites
-    if (pvNode || !(pruneOK & !checks & (depthChange <= 0))) {
-      goto search_main;
-    }
+//    // forward pruning prerequisites
+//    if (pvNode || !(pruneOK & !checks & (depthChange <= 0))) {
+//      goto search_main;
+//    }
 
-    // null move heuristics prerequisites
-    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
-        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn]) < 4))
-    {
-      goto search_main;
-    }
+//    // null move heuristics prerequisites
+//    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
+//        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn]) < 4))
+//    {
+//      goto search_main;
+//    }
 
-    // futility pruning (static null move pruning)
-    if ((cutNode & (depth < 5) & (abs(beta) < WinningScore)) &&
-        ((eval - FutilityDelta(depth)) >= beta))
-    {
-      _stats.futility++;
-      pvCount = 0;
-      return beta; // TODO (eval - FutilityDelta(depth));
-    }
+//    // futility pruning (static null move pruning)
+//    if ((cutNode & (depth < 5) & (abs(beta) < WinningScore)) &&
+//        ((eval - FutilityDelta(depth)) >= beta))
+//    {
+//      _stats.futility++;
+//      pvCount = 0;
+//      return beta; // TODO (eval - FutilityDelta(depth));
+//    }
 
-    int searchDepth;
-    if ((depth > 1) & (eval >= beta)) {
-      // null move pruning
-      ExecNullMove<color>(*child);
-      child->pruneOK = false;
-      child->depthChange = 0;
-      searchDepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
-      eval = (searchDepth > 0)
-          ? -child->Search<NonPV, !color>(-beta, -alpha, searchDepth, false)
-          : -child->QSearch<!color>(-beta, -alpha, 0);
-      if (_stop) {
-        return beta;
-      }
-      if (eval >= beta) {
-        // TODO do verification search if depth reduction > 4
-        _stats.nmCutoffs++;
-        pvCount = 0;
-        return (standPat >= beta) ? standPat : beta; // do not return eval
-      }
-    }
+//    if ((depth > 1) & (eval >= beta)) {
+//      // null move pruning
+//      ExecNullMove<color>(*child);
+//      child->pruneOK = false;
+//      child->depthChange = 0;
+//      const int rdepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
+//      eval = (rdepth > 0)
+//          ? -child->Search<NonPV, !color>(-beta, -alpha, rdepth, false)
+//          : -child->QSearch<!color>(-beta, -alpha, 0);
+//      if (_stop) {
+//        return beta;
+//      }
+//      if (eval >= beta) {
+//        // TODO do verification search if depth reduction > 4
+//        _stats.nmCutoffs++;
+//        pvCount = 0;
+//        return (standPat >= beta) ? standPat : beta; // do not return eval
+//      }
+//    }
 
 search_main:
-    pruneOK = false;
 
     // internal iterative deepening
     if (!firstMove.Type() & (beta < Infinity) &
@@ -3509,8 +3620,8 @@ search_main:
       assert(!pvCount);
       _stats.iidCount++;
       // subtract depthChange because it will be added again at top of Search()
-      searchDepth = (depth - depthChange - (pvNode ? 2 : 4));
-      eval = Search<NonPV, color>((beta - 1), beta, searchDepth, true);
+      const int rdepth = (depth - depthChange - (pvNode ? 2 : 4));
+      eval = Search<NonPV, color>((beta - 1), beta, rdepth, true);
       if (_stop | !pvCount) {
         return eval;
       }
@@ -3524,7 +3635,7 @@ search_main:
     else if (!firstMove.Type()) {
       assert(!moveCount);
       assert(!pvCount);
-      GenerateMoves<color, false>();
+      GenerateMoves<color, false>(depth);
       if (moveCount <= 0) {
         if (checks) {
           _tt.StoreCheckmate(positionKey);
@@ -3565,9 +3676,9 @@ search_main:
         AddKiller(firstMove);
       }
       firstMove.Score() = beta;
-      _tt.Store(positionKey, firstMove, pvDepth, HashEntry::LowerBound,
-                (((depthChange > 0) ? HashEntry::Extended : 0) |
-                 (pvNode ? HashEntry::FromPV : 0)));
+//      _tt.Store(positionKey, firstMove, pvDepth, HashEntry::LowerBound,
+//                (((depthChange > 0) ? HashEntry::Extended : 0) |
+//                 (pvNode ? HashEntry::FromPV : 0)));
       return best;
     }
     if (best > alpha) {
@@ -3579,7 +3690,7 @@ search_main:
 
     // generate moves if we haven't done so already
     if (moveCount <= 0) {
-      GenerateMoves<color, false>();
+      GenerateMoves<color, false>(depth);
       assert(moveCount > 0);
 
       // single reply extensions
@@ -3591,7 +3702,7 @@ search_main:
     }
 
     // search remaining moves
-    const bool lmr_ok = ((cutNode | !pvNode) & !checks & (depth > 2));
+//    const bool lmr_ok = ((cutNode | !pvNode) & !checks & (depth > 2));
     Move* move;
     moveIndex = 0;
     while ((move = GetNextMove())) {
@@ -3604,23 +3715,23 @@ search_main:
 
       // late move reductions
       _stats.lateMoves++;
-      if (lmr_ok) _stats.lmCandidates++;
-      if (lmr_ok &
-          !move->IsCapOrPromo() &
-          !child->checks &
-          !IsKiller(*move) &
-          (_hist[move->HistoryIndex()] < 0) &
-          (!pvNode || (moveIndex > 7)))
-      {
-        _stats.lmReductions++;
-        child->pruneOK = true;
-        child->depthChange = -(1 + (!pvNode &
-                                    (-child->standPat <= -parent->standPat)));
-      }
-      else {
+//      if (lmr_ok) _stats.lmCandidates++;
+//      if (lmr_ok &
+//          !move->IsCapOrPromo() &
+//          !child->checks &
+//          !IsKiller(*move) &
+//          (_hist[move->HistoryIndex()] < 0) &
+//          (!pvNode || (moveIndex > 7)))
+//      {
+//        _stats.lmReductions++;
+//        child->pruneOK = true;
+//        child->depthChange = -(1 + (!pvNode &
+//                                    (-child->standPat <= -parent->standPat)));
+//      }
+//      else {
         child->pruneOK = true;
         child->depthChange = 0;
-      }
+//      }
 
       // first search with a null window to quickly see if it improves alpha
       eval = ((depth + child->depthChange - 1) > 0)
@@ -3628,16 +3739,16 @@ search_main:
           : -child->QSearch<!color>(-(alpha + 1), -alpha, 0);
 
       // re-search at full depth?
-      if (!_stop && (eval > alpha) && (child->depthChange < 0)) {
-        assert(depth > 1);
-        _stats.lmResearches++;
-        child->pruneOK = false;
-        child->depthChange = 0;
-        eval = -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), false);
-        if (!_stop && (eval > alpha)) {
-          _stats.lmConfirmed++;
-        }
-      }
+//      if (!_stop && (eval > alpha) && (child->depthChange < 0)) {
+//        assert(depth > 1);
+//        _stats.lmResearches++;
+//        child->pruneOK = false;
+//        child->depthChange = 0;
+//        eval = -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), false);
+//        if (!_stop && (eval > alpha)) {
+//          _stats.lmConfirmed++;
+//        }
+//      }
 
       // re-search with full window?
       if (!_stop && pvNode && (eval > alpha)) {
@@ -3664,9 +3775,9 @@ search_main:
             AddKiller(*move);
           }
           move->Score() = beta;
-          _tt.Store(positionKey, *move, pvDepth, HashEntry::LowerBound,
-                    (((depthChange > 0) ? HashEntry::Extended : 0) |
-                     (pvNode ? HashEntry::FromPV : 0)));
+//          _tt.Store(positionKey, *move, pvDepth, HashEntry::LowerBound,
+//                    (((depthChange > 0) ? HashEntry::Extended : 0) |
+//                     (pvNode ? HashEntry::FromPV : 0)));
           return best;
         }
       }
@@ -3692,16 +3803,16 @@ search_main:
         if (!pv[0].IsCapOrPromo()) {
           IncHistory(pv[0], checks, pvDepth);
         }
-        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::ExactScore,
-            (((depthChange > 0) ? HashEntry::Extended : 0) |
-             HashEntry::FromPV));
+//        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::ExactScore,
+//            (((depthChange > 0) ? HashEntry::Extended : 0) |
+//             HashEntry::FromPV));
       }
       else {
         assert(alpha == orig_alpha);
         assert(pvDepth <= depth);
-        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::UpperBound,
-            (((depthChange > 0) ? HashEntry::Extended : 0) |
-             (pvNode ? HashEntry::FromPV : 0)));
+//        _tt.Store(positionKey, pv[0], pvDepth, HashEntry::UpperBound,
+//            (((depthChange > 0) ? HashEntry::Extended : 0) |
+//             (pvNode ? HashEntry::FromPV : 0)));
       }
     }
 
@@ -3718,7 +3829,7 @@ search_main:
     pruneOK = false;
     depthChange = 0;
 
-    GenerateMoves<color, false>();
+    GenerateMoves<color, false>(depth);
     if (moveCount <= 0) {
       senjo::Output() << "No legal moves";
       return std::string();
@@ -3974,10 +4085,10 @@ const char* Clunk::MakeMove(const char* str) {
   }
 
   if (color) {
-    root->GenerateMoves<Black, false>();
+    root->GenerateMoves<Black, false>(1);
   }
   else {
-    root->GenerateMoves<White, false>();
+    root->GenerateMoves<White, false>(1);
   }
 
   for (; root->moveIndex < root->moveCount; ++root->moveIndex) {
@@ -4352,7 +4463,11 @@ std::string Clunk::GetFEN() const {
 
 //-----------------------------------------------------------------------------
 void Clunk::ClearSearchData() {
-  // TODO
+  _tt.Clear();
+  memset(_hist, 0, sizeof(_hist));
+  for (int i = 0; i < MaxPlies; ++i) {
+    _node[i].ClearKillers();
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -4370,7 +4485,7 @@ void Clunk::PonderHit() {
 
 //-----------------------------------------------------------------------------
 void Clunk::PrintBoard() const {
-  root->PrintBoard();
+  root->PrintBoard(true);
 }
 
 //-----------------------------------------------------------------------------
