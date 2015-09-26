@@ -6,11 +6,6 @@
 
 namespace clunk {
 
-uint64_t TranspositionTable::_stores = 0;
-uint64_t TranspositionTable::_hits = 0;
-uint64_t TranspositionTable::_checkmates = 0;
-uint64_t TranspositionTable::_stalemates = 0;
-
 //----------------------------------------------------------------------------
 const uint64_t _HASH[14][128] =
 {
