@@ -85,20 +85,27 @@ const uint64_t _DIAG_DIRS  = 0xFF00FF0000FF00FFULL;
 const uint64_t _CROSS_DIRS = 0x00FF00FFFF00FF00ULL;
 
 //-----------------------------------------------------------------------------
-char               _dir[128][128] = {0};
-char               _dist[128][128] = {0};
-char               _knightDir[128][128] = {0};
-char               _kingDir[128] = {0};
-Piece*             _board[128] = {0};
-Piece              _piece[PieceListSize];
-int                _pcount[12] = {0};
-int                _material[2] = {0};
-uint64_t           _atk[128] = {0};
-uint64_t           _pawnCaps[128] = {0};
-uint64_t           _knightMoves[128] = {0};
-uint64_t           _bishopRook[128] = {0};
-uint64_t           _queenKing[128] = {0};
-std::set<uint64_t> _seen;
+char     _dir[128][128] = {0};
+char     _dist[128][128] = {0};
+char     _knightDir[128][128] = {0};
+char     _kingDir[128] = {0};
+Piece*   _board[128] = {0};
+Piece    _piece[PieceListSize];
+int      _seenIndex = 0;
+int      _pcount[12] = {0};
+int      _material[2] = {0};
+uint64_t _atk[128] = {0};
+uint64_t _seen[MaxPlies] = {0};
+uint64_t _pawnCaps[128] = {0};
+uint64_t _knightMoves[128] = {0};
+uint64_t _bishopRook[128] = {0};
+uint64_t _queenKing[128] = {0};
+uint8_t  _seenFilter[SeenFilterMask + 1] = {0};
+
+#ifndef NDEBUG
+uint64_t _seenStack[8000] = {0};
+uint64_t* _seenStackTop = _seenStack;
+#endif
 
 //-----------------------------------------------------------------------------
 Piece* _EMPTY              = _piece;
@@ -1164,8 +1171,36 @@ struct Node
   Move pv[MaxPlies];
 
   //---------------------------------------------------------------------------
+  bool InSeenStack() const {
+#ifndef NDEBUG
+    for (uint64_t* top = _seenStackTop; (top-- > _seenStack); ) {
+      if (positionKey == *top) {
+        return true;
+      }
+    }
+#endif
+    return false;
+  }
+
+  //---------------------------------------------------------------------------
+  bool HasRepeated() const {
+    if ((rcount > 1) & (_seenFilter[positionKey & SeenFilterMask] != 0)) {
+      for (int n = rcount, i = _seenIndex; n--;) {
+        assert((i >= 0) & (i < MaxPlies));
+        i += ((MaxPlies * !i) - 1);
+        assert((i >= 0) & (i < MaxPlies));
+        if (_seen[i] == positionKey) {
+          assert(InSeenStack());
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  //---------------------------------------------------------------------------
   inline bool IsDraw() const {
-    return (((state & Draw) | (rcount >= 100)) || _seen.count(positionKey));
+    return (((state & Draw) | (rcount >= 100)) || HasRepeated());
   }
 
   //---------------------------------------------------------------------------
@@ -2423,6 +2458,17 @@ struct Node
 
     _stats.execs++;
 
+    assert((_seenIndex >= 0) & (_seenIndex < MaxPlies));
+    _seen[_seenIndex++] = positionKey;
+    _seenIndex -= (MaxPlies * (_seenIndex == MaxPlies));
+    _seenFilter[positionKey & SeenFilterMask]++;
+    assert(_seenFilter[positionKey & SeenFilterMask]);
+#ifndef NDEBUG
+    assert(_seenStackTop >= _seenStack);
+    assert((_seenStackTop - _seenStack) < 8000);
+    *_seenStackTop++ = positionKey;
+#endif
+
     const int from  = move.From();
     const int to    = move.To();
     const int cap   = move.Cap();
@@ -2677,6 +2723,16 @@ struct Node
     assert(!move.Cap() || (COLOR(move.Cap()) != color));
     assert(!move.Promo() || IS_PROMO(move.Promo()));
     assert(!move.Promo() || (COLOR(move.Promo()) == color));
+
+    _seenIndex += ((MaxPlies * !_seenIndex) - 1);
+    assert((_seenIndex >= 0) & (_seenIndex < MaxPlies));
+    assert(_seenFilter[positionKey & SeenFilterMask]);
+    _seenFilter[positionKey & SeenFilterMask]--;
+
+#ifndef NDEBUG
+    assert(_seenStackTop > _seenStack);
+    _seenStackTop--;
+#endif
 
     const int from  = move.From();
     const int to    = move.To();
@@ -3403,13 +3459,43 @@ struct Node
     assert((_pcount[Black|Queen] >= 0) & (_pcount[Black|Queen] <= 9));
     assert(!pawnKey == !(_pcount[White|Pawn]|_pcount[Black|Pawn]));
 
-    // TODO draw detection
+    const bool whiteCanWin = (_pcount[White|Pawn] |
+                             (_pcount[White|Knight] > 2) |
+                             (_pcount[White|Bishop] > 1) |
+                             ((_pcount[White|Knight] != 0) &
+                              (_pcount[White|Bishop] != 0)) |
+                              _pcount[White|Rook] |
+                              _pcount[White|Queen]);
 
-    int score = (_material[White] - _material[Black]);
+    const bool blackCanWin = (_pcount[Black|Pawn] |
+                             (_pcount[Black|Knight] > 2) |
+                             (_pcount[Black|Bishop] > 1) |
+                             ((_pcount[Black|Knight] != 0) &
+                              (_pcount[Black|Bishop] != 0)) |
+                              _pcount[Black|Rook] |
+                              _pcount[Black|Queen]);
+
+    if (!(whiteCanWin | blackCanWin)) {
+      state |= Draw;
+      standPat = _drawScore[COLOR(state)];
+      return;
+    }
+
     atkCount[White] = 0;
     atkCount[Black] = 0;
     atkScore[White] = 0;
     atkScore[Black] = 0;
+
+    int score = (_material[White] - _material[Black] +
+                 (whiteCanWin * 50) - (blackCanWin * 50));
+
+    // redundant knights are worth slightly less
+    if (_pcount[White|Knight] > 1) {
+      score -= (16 * (_pcount[White|Knight] - 1));
+    }
+    if (_pcount[Black|Knight] > 1) {
+      score += (16 * (_pcount[Black|Knight] - 1));
+    }
 
     PawnEntry* entry = _pawnTT.Get(pawnKey);
     assert(entry);
@@ -3436,8 +3522,6 @@ struct Node
       if (_pcount[Black|Pawn]) score -= PasserEval<Black>(entry);
     }
 
-// TODO    score += PasserEval2<White>(entry);
-// TODO    score -= PasserEval2<Black>(entry);
     score += KnightEval<White>();
     score -= KnightEval<Black>();
     score += BishopEval<White>();
@@ -3448,6 +3532,19 @@ struct Node
 //    score -= QueenEval<Black>();
 //    score += KingEval<White>();
 //    score -= KingEval<Black>();
+
+    // reduce winning score if "winning" side can't win
+    if (((score > 0) & !whiteCanWin) | ((score < 0) & !blackCanWin)) {
+      assert(whiteCanWin != blackCanWin);
+      score /= 8;
+    }
+
+    // reduce winning score if rcount is getting large
+    // NOTE: this destabilizes transposition table values
+    //       because rcount is not encoded into positionKey
+    if ((rcount > 25) & (abs(score) > 8)) {
+      score = static_cast<int>(score * (25.0 / rcount));
+    }
 
     standPat = (COLOR(state) ? -score : score);
   }
@@ -4235,13 +4332,15 @@ const char* Clunk::SetPosition(const char* fen) {
     return NULL;
   }
 
+  _seenIndex = 0;
   memset(_kingDir, 0, sizeof(_kingDir));
   memset(_board, 0, sizeof(_board));
   memset(_piece, 0, sizeof(_piece));
   memset(_pcount, 0, sizeof(_pcount));
   memset(_material, 0, sizeof(_material));
   memset(_atk, 0, sizeof(_atk));
-  _seen.clear();
+  memset(_seen, 0, sizeof(_seen));
+  memset(_seenFilter, 0, sizeof(_seenFilter));
 
   _board[None] = _EMPTY;
 
