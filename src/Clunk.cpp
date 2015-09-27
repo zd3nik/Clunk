@@ -3012,6 +3012,8 @@ struct Node
     assert(entry);
     assert((PawnOffset + 8) == BlackPawnOffset);
     int score = 0;
+    int stack[8];
+    int* top = stack;
     uint8_t* file = entry->fileInfo[color];
 
     for (int i = _pcount[color|Pawn]; i--; ) {
@@ -3031,11 +3033,33 @@ struct Node
       assert((y >= 1) && (y < 7));
       const int a = file[x + 1];
       if (a) {
+        file[x + 1] |= PawnEntry::Doubled;
         file[x + 1] = (color ? std::min<int>(a, y) : std::max<int>(a, y));
         score -= 32;
       }
       else {
         file[x + 1] = y;
+        *top++ = x;
+      }
+    }
+
+    while (top-- > stack) {
+      const int x = *top;
+      assert((x >= 0) & (x < 8));
+      int l = (file[x] & 7);
+      const int y = (file[x + 1] & 7);
+      int r = (file[x + 2] & 7);
+      assert((l >= 0) & (l < 7));
+      assert((y >= 1) & (y < 7));
+      assert((r >= 0) & (r < 7));
+      l = (l ? (color ? (l - y) : (y - l)) : -5);
+      r = (r ? (color ? (r - y) : (y - r)) : -5);
+      if ((l < 0) & (r < 0)) {
+        score += ((x < 3) | (x > 4)) ? (l + r) : ((l + r) / 2);
+        file[x + 1] |= PawnEntry::Backward;
+      }
+      else if ((l == 0) | (l == 1) | (r == 0) | (r == 1)) {
+        file[x + 1] |= PawnEntry::Supported;
       }
     }
 
@@ -3061,8 +3085,35 @@ struct Node
       assert(IS_SQUARE(SQR(x,y)));
       assert(_board[SQR(x,y)]->type == (color|Pawn));
       assert(_board[SQR(x,y)]->sqr == SQR(x,y));
-      if (you[x] | you[x + 1] | you[x + 2]) {
+
+      // opposing pawn counts
+      int op[3] = {0};
+      for (int n = 0; n < 3; ++n) {
+        for (int i = (you[x + n] & 7); ((i > 0) & (i < 7)); color ? --i : ++i) {
+          if (_board[SQR((x + n - 1),i)]->type == ((!color)|Pawn)) {
+            op[n] += (color ? (i < y) : (i > y));
+          }
+        }
+      }
+      if (op[1]) {
         continue;
+      }
+      const bool potential_passer = (op[0] | op[2]);
+      if (potential_passer) {
+        if ((color ? (y > 3) : (y < 4)) | !(me[x + 1] & PawnEntry::Supported)) {
+          continue;
+        }
+        for (int n = 0; n < 3; n += 2) {
+          for (int i = (me[x + n] & 7); ((i > 0) & (i < 7)); color ? ++i : --i) {
+            if (_board[SQR((x + n - 1),i)]->type == (color|Pawn)) {
+              op[n] -= (color ? (i < y) : (i > y));
+              break; // be pessimistic, only count the first supporting pawn
+            }
+          }
+        }
+        if ((op[0] + op[2]) > 0) {
+          continue;
+        }
       }
 
       int bonus = _PASSER_BONUS[color ? (7 - y) : y];
@@ -3073,8 +3124,13 @@ struct Node
       assert(_board[from]->type == (color|Pawn));
       assert(_board[from]->sqr == SQR(x,y));
 
+      // reduce bonus if only a potential passer
+      if (potential_passer) {
+        bonus /= 2;
+      }
+
       // bonus if it has support
-      if (me[x + 1] & PawnEntry::Supported) {
+      else if (me[x + 1] & PawnEntry::Supported) {
         bonus = ((bonus * 4) / 3);
       }
 
@@ -3136,15 +3192,15 @@ struct Node
           assert(IS_SQUARE(to));
           assert(to != sqr);
           mob += ((!_board[to]->type) | (COLOR(_board[to]->type) != color));
-          if (Distance(to, _KING[!color]->sqr) <= 1) {
-            atkCount[color]++;
-            atkScore[color] += 20;
-          }
+//          if (Distance(to, _KING[!color]->sqr) <= 1) {
+//            atkCount[color]++;
+//            atkScore[color] += 20;
+//          }
         }
       }
 
       assert((mob >= 0) & (mob <= 8));
-      score += (/*mob*/ - (16 * !mob) - (4 * (mob == 1)));
+      score += (mob - (16 * !mob) - (4 * (mob == 1)));
     }
 
     return score;
@@ -3184,7 +3240,7 @@ struct Node
 
   //---------------------------------------------------------------------------
   template<Color color>
-  int RookEval(const char** fileInfo) {
+  int RookEval(const uint8_t fileInfo[2][10]) {
     assert(fileInfo);
     assert((RookOffset + 10) == BlackRookOffset);
     int score = 0;
@@ -3211,37 +3267,38 @@ struct Node
 
       const int x = XC(sqr);
       const int y = YC(sqr);
+      const uint8_t file = fileInfo[color][x + 1];
 
-      // bonus if on open file and inline with enemy passed/backward pawn
-      if (!fileInfo[color][x + 1]) {
+      // bonus if on open file
+      // extra if inline with enemy passed/backward pawn
+      if (!file) {
         score += (mob +
                   (4 * !fileInfo[!color][x + 1]) +
                   (8 * !!(fileInfo[!color][x + 1] &
-                   (PawnEntry::Backward|PawnEntry::Passed))));
+                          (PawnEntry::Backward|PawnEntry::Passed))));
       }
 
       // bonus for passed pawn support
-      else if (fileInfo[color][x + 1] & PawnEntry::Passed) {
-        assert(!fileInfo[!color][x + 1]);
-        assert((fileInfo[color][x + 1] & 7) >= 1);
-        assert((fileInfo[color][x + 1] & 7) <= 6);
-        assert(_board[SQR(x, (fileInfo[color][x + 1] & 7))]->type == (color|Pawn));
-        score += (mob + 4 + (4 * (color ? ((fileInfo[color][x + 1] & 7) < y)
-                                        : ((fileInfo[color][x + 1] & 7) > y))));
+      else if (file & PawnEntry::Passed) {
+        assert((file & 7) >= 1);
+        assert((file & 7) <= 6);
+        assert(_board[SQR(x, (file & 7))]->type == (color|Pawn));
+        score += (mob + 4 + (4 * (color ? ((file & 7) < y)
+                                        : ((file & 7) > y))));
       }
 
       // bonus for backward pawn support
-      else if (fileInfo[color][x + 1] & PawnEntry::Backward) {
-        assert((fileInfo[color][x + 1] & 7) >= 1);
-        assert((fileInfo[color][x + 1] & 7) <= 6);
-        assert(_board[SQR(x, (fileInfo[color][x + 1] & 7))]->type == (color|Pawn));
+      else if (file & PawnEntry::Backward) {
+        assert((file & 7) >= 1);
+        assert((file & 7) <= 6);
+        assert(_board[SQR(x, (file & 7))]->type == (color|Pawn));
         score += (mob + 4);
       }
 
       // penalty if stuck behind own pawn after castling
       else if ((mob < 6) && !(state & (color ? BlackCastle : WhiteCastle)) &&
-               (color ? (y > (fileInfo[color][x + 1] & 7))
-                      : (y < (fileInfo[color][x + 1] & 7))))
+               (color ? (y > (file & 7))
+                      : (y < (file & 7))))
       {
         const int kx = XC(_KING[color]->sqr);
         if (kx >= 4) {
@@ -3358,27 +3415,35 @@ struct Node
     assert(entry);
     if (entry->positionKey == pawnKey) {
       _pawnTT.IncHits();
-      // TODO verify entry->fileInfo
       score += (entry->score[White] - entry->score[Black]);
+#ifndef NDEBUG
+      PawnEntry tmp;
+      memset(&tmp, 0, sizeof(tmp));
+      tmp.positionKey = pawnKey;
+      if (_pcount[White|Pawn]) score += PawnEval<White>(&tmp);
+      if (_pcount[Black|Pawn]) score -= PawnEval<Black>(&tmp);
+      if (_pcount[White|Pawn]) score += PasserEval<White>(&tmp);
+      if (_pcount[Black|Pawn]) score -= PasserEval<Black>(&tmp);
+      assert(!memcmp(&tmp, entry, sizeof(PawnEntry)));
+#endif
     }
     else {
       memset(entry, 0, sizeof(PawnEntry));
       entry->positionKey = pawnKey;
-      score += PawnEval<White>(entry);
-      score -= PawnEval<Black>(entry);
-      score += PasserEval<White>(entry);
-      score -= PasserEval<Black>(entry);
-      // TODO verify entry->fileInfo
+      if (_pcount[White|Pawn]) score += PawnEval<White>(entry);
+      if (_pcount[Black|Pawn]) score -= PawnEval<Black>(entry);
+      if (_pcount[White|Pawn]) score += PasserEval<White>(entry);
+      if (_pcount[Black|Pawn]) score -= PasserEval<Black>(entry);
     }
 
 // TODO    score += PasserEval2<White>(entry);
 // TODO    score -= PasserEval2<Black>(entry);
-//    score += KnightEval<White>();
-//    score -= KnightEval<Black>();
-//    score += BishopEval<White>();
-//    score -= BishopEval<Black>();
-//    score += RookEval<White>();
-//    score -= RookEval<Black>();
+    score += KnightEval<White>();
+    score -= KnightEval<Black>();
+    score += BishopEval<White>();
+    score -= BishopEval<Black>();
+    score += RookEval<White>(entry->fileInfo);
+    score -= RookEval<Black>(entry->fileInfo);
 //    score += QueenEval<White>();
 //    score -= QueenEval<Black>();
 //    score += KingEval<White>();
