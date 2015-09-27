@@ -121,7 +121,7 @@ enum {
   MaxMoves          = 128,
   StartMaterial     = ((8 * PawnValue) + (2 * KnightValue) +
                        (2 * BishopValue) + (2 * RookValue) +  QueenValue),
-  WinningScore      = 30000,
+  WinningScore      = 20000,
   MateScore         = 31000,
   Infinity          = 32000,
   HugeDelta         = 64000

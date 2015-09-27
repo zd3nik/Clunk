@@ -35,6 +35,21 @@ struct HashEntry
   };
 
   //---------------------------------------------------------------------------
+  uint64_t Key() const {
+    return key;
+  }
+
+  //---------------------------------------------------------------------------
+  uint32_t MoveBits() const {
+    return moveBits;
+  }
+
+  //---------------------------------------------------------------------------
+  int Depth() const {
+    return depth;
+  }
+
+  //---------------------------------------------------------------------------
   int GetPrimaryFlag() const {
     return (flags & HashEntry::PrimaryMask);
   }
@@ -50,53 +65,84 @@ struct HashEntry
   }
 
   //---------------------------------------------------------------------------
-  void Set(const uint64_t key,
+  int Score(const int ply) const {
+    // get mate-in-N scores relative to root
+    assert((ply >= 0) & (ply < MaxPlies));
+    assert(abs(score) < Infinity);
+    if (score > MateScore) {
+      assert((score - ply) > MateScore);
+      assert((score - ply) < Infinity);
+      return (score - ply);
+    }
+    if (score < -MateScore) {
+      assert((score + ply) < -MateScore);
+      assert((score + ply) > -Infinity);
+      return (score + ply);
+    }
+    return score;
+  }
+
+  //---------------------------------------------------------------------------
+  void Set(const uint64_t entryKey,
            const Move& bestmove,
+           const int ply,
            const int draft,
            const int primaryFlag,
            const int otherFlags)
   {
-    assert(key);
+    assert(entryKey);
     assert(bestmove.IsValid());
     assert(abs(bestmove.GetScore()) < Infinity);
+    assert((ply >= 0) & (ply < MaxPlies));
     assert((draft >= 0) && (draft < 256));
     assert((primaryFlag == HashEntry::LowerBound) ||
            (primaryFlag == HashEntry::UpperBound) ||
            (primaryFlag == HashEntry::ExactScore));
     assert(!(otherFlags & ~HashEntry::OtherMask));
 
-    positionKey = key;
-    moveBits    = bestmove.Bits();
-    score       = static_cast<int16_t>(bestmove.GetScore());
-    depth       = static_cast<uint8_t>(draft);
-    flags       = static_cast<uint8_t>(primaryFlag | otherFlags);
+    key      = entryKey;
+    moveBits = bestmove.Bits();
+    depth    = static_cast<uint8_t>(draft);
+    flags    = static_cast<uint8_t>(primaryFlag | otherFlags);
+
+    // store mate-in-N scores relative to position
+    if (bestmove.GetScore() > MateScore) {
+      score  = static_cast<int16_t>(bestmove.GetScore() + ply);
+    }
+    else if (bestmove.GetScore() < -MateScore) {
+      score  = static_cast<int16_t>(bestmove.GetScore() - ply);
+    }
+    else {
+      score  = static_cast<int16_t>(bestmove.GetScore());
+    }
   }
 
   //---------------------------------------------------------------------------
-  void SetCheckmate(const uint64_t key) {
-    assert(key);
-    positionKey = key;
-    moveBits    = 0;
-    score       = Infinity;
-    depth       = 0;
-    flags       = HashEntry::Checkmate;
+  void SetCheckmate(const uint64_t entryKey) {
+    assert(entryKey);
+    key      = entryKey;
+    moveBits = 0;
+    depth    = 0;
+    flags    = HashEntry::Checkmate;
+    score    = Infinity;
   }
 
   //---------------------------------------------------------------------------
-  void SetStalemate(const uint64_t key) {
-    assert(key);
-    positionKey = key;
-    moveBits    = 0;
-    score       = 0;
-    depth       = 0;
-    flags       = HashEntry::Stalemate;
+  void SetStalemate(const uint64_t entryKey) {
+    assert(entryKey);
+    key      = entryKey;
+    moveBits = 0;
+    depth    = 0;
+    flags    = HashEntry::Stalemate;
+    score    = 0;
   }
 
-  uint64_t positionKey;
+private:
+  uint64_t key;
   uint32_t moveBits;
-  int16_t  score;
   uint8_t  depth;
   uint8_t  flags;
+  int16_t  score;
 };
 
 //-----------------------------------------------------------------------------

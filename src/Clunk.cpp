@@ -3402,7 +3402,7 @@ struct Node
 
     pvCount = 0;
     if (IsDraw()) {
-      return _drawScore[color];
+      return (standPat = _drawScore[color]);
     }
 
     // mate distance pruning
@@ -3414,129 +3414,66 @@ struct Node
     }
 
     // transposition table
-    Move firstMove;
+    int score;
     HashEntry* entry = _tt.Get(positionKey);
     assert(entry);
-    if (entry->positionKey == positionKey) {
+    if (entry->Key() == positionKey) {
       _tt.IncHits();
       switch (entry->GetPrimaryFlag()) {
       case HashEntry::Checkmate: return (ply - Infinity);
-      case HashEntry::Stalemate: return _drawScore[color];
-//      case HashEntry::UpperBound:
-//        assert(abs(entry->score) < Infinity);
-//        firstMove.Init(entry->moveBits, entry->score);
-//        assert(ValidateMove<color>(firstMove) == 0);
-//        if ((entry->score <= alpha) & (abs(entry->score) < WinningScore)) {
-//          pv[0] = firstMove;
-//          pvCount = 1;
-//          return entry->score;
-//        }
-//        break;
-//      case HashEntry::ExactScore:
-//        assert(abs(entry->score) < Infinity);
-//        firstMove.Init(entry->moveBits, entry->score);
-//        assert(ValidateMove<color>(firstMove) == 0);
-//        pv[0] = firstMove;
-//        pvCount = 1;
-//        if ((entry->score > alpha) & !firstMove.IsCapOrPromo()) {
-//          IncHistory(firstMove, checks, entry->depth);
-//          if (entry->score >= beta) {
-//            AddKiller(firstMove);
-//          }
-//        }
-//        if (abs(entry->score) < WinningScore) {
-//          return entry->score;
-//        }
-//        break;
-      case HashEntry::LowerBound:
-//        assert(abs(entry->score) < Infinity);
-//        firstMove.Init(entry->moveBits, entry->score);
-//        assert(ValidateMove<color>(firstMove) == 0);
-//        if (entry->score >= beta) {
-//          pv[0] = firstMove;
-//          pvCount = 1;
-//          if (!firstMove.IsCapOrPromo()) {
-//            IncHistory(firstMove, checks, entry->depth);
-//            AddKiller(firstMove);
-//          }
-//          if (abs(entry->score) < WinningScore) {
-//            return entry->score;
-//          }
-//        }
-        if ((!checks) & (abs(entry->score) < WinningScore)) {
-          best = std::max<int>(best, entry->score);
-          alpha = std::max<int>(alpha, best);
+      case HashEntry::Stalemate: return (standPat = _drawScore[color]);
+      case HashEntry::UpperBound:
+        if ((score = entry->Score(ply)) <= alpha) {
+          return score;
         }
         break;
-//      default:
-//        assert(false);
+      case HashEntry::ExactScore:
+        return entry->Score(ply);
+      case HashEntry::LowerBound:
+        if ((score = entry->Score(ply)) >= beta) {
+          return score;
+        }
+        if (!checks) {
+          alpha = std::max<int>(alpha, score);
+        }
+        break;
+      default:
+        assert(false);
       }
     }
 
     assert(best <= alpha);
     assert(alpha < beta);
+    assert(!pvCount);
 
-    // if not in check allow standPat as a move
+    // if not in check allow standPat
     if (!checks) {
       Evaluate();
       if (standPat >= beta) {
-        assert(pvCount <= !!firstMove.Type());
-        return beta;
+        return standPat;
       }
-      best = std::max<int>(best, standPat);
-      alpha = std::max<int>(alpha, best);
-      assert(best <= alpha);
+      assert(standPat > best);
+      best = standPat;
+      alpha = std::max<int>(alpha, standPat);
       assert(alpha < beta);
-    }
-
-    // search firstMove if we have it
-    if (firstMove.Type()) {
-      _stats.qexecs++;
-      Exec<color>(firstMove, *child);
-      if (!checks & !firstMove.IsCapOrPromo() & !child->checks) {
-        Undo<color>(firstMove);
-      }
-      else {
-        firstMove.Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
-        Undo<color>(firstMove);
-        if (_stop) {
-          return beta;
-        }
-        if (firstMove.GetScore() > best) {
-          best = firstMove.GetScore();
-          UpdatePV(firstMove);
-          if (best >= beta) {
-            return best;
-          }
-        }
-        alpha = std::max<int>(alpha, best);
-        assert(alpha < beta);
-      }
     }
 
     // generate moves
     GenerateMoves<color, true>(depth);
     if (moveCount <= 0) {
       if (checks) {
-        assert(!firstMove.IsValid());
         entry->SetCheckmate(positionKey);
         _tt.IncCheckmates();
         return (ply - Infinity);
       }
       // don't call _tt.StoreStalemate()!!!
-      assert(best >= standPat);
-      assert(best < beta);
-      return best;
+      return standPat;
     }
 
     // search 'em
     Move* move;
     while ((move = GetNextMove())) {
       assert(move->IsValid());
-      if (firstMove == (*move)) {
-        continue;
-      }
-
       _stats.qexecs++;
       Exec<color>(*move, *child);
       assert(checks | move->IsCapOrPromo() | (child->checks && !depth));
@@ -3558,7 +3495,6 @@ struct Node
 
     assert(best <= alpha);
     assert(alpha < beta);
-
     return best;
   }
 
@@ -3610,70 +3546,64 @@ struct Node
     // transposition table
     HashEntry* entry = _tt.Get(positionKey);
     assert(entry);
-    if (entry->positionKey == positionKey) {
+    if (entry->Key() == positionKey) {
       _tt.IncHits();
       switch (entry->GetPrimaryFlag()) {
       case HashEntry::Checkmate: return (ply - Infinity);
-      case HashEntry::Stalemate: return _drawScore[color];
+      case HashEntry::Stalemate: return (standPat = _drawScore[color]);
       case HashEntry::UpperBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
+        firstMove.Init(entry->MoveBits(), entry->Score(ply));
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((entry->depth >= depth) & (entry->score <= alpha) &
-            (abs(entry->score) < WinningScore) &
+        if ((entry->Depth() >= depth) & (firstMove.GetScore() <= alpha) &
             ((!pvNode) | entry->HasPvFlag()))
         {
           pv[0] = firstMove;
           pvCount = 1;
-          return entry->score;
+          return firstMove.GetScore();
         }
-        if ((entry->depth >= (depth - 3)) & (entry->score < eval)) {
-          eval = entry->score;
+        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() < eval)) {
+          eval = firstMove.GetScore();
         }
         break;
       case HashEntry::ExactScore:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
         assert(entry->HasPvFlag());
+        firstMove.Init(entry->MoveBits(), entry->Score(ply));
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((entry->depth >= depth) & ((!pvNode) |
-                                       (entry->score <= alpha) |
-                                       (entry->score >= beta)))
+        if ((entry->Depth() >= depth) &
+            ((!pvNode) |
+             (firstMove.GetScore() <= alpha) |
+             (firstMove.GetScore() >= beta)))
         {
           pv[0] = firstMove;
           pvCount = 1;
-          if ((entry->score > alpha) & !firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, checks, entry->depth);
-            if (entry->score >= beta) {
+          if ((firstMove.GetScore() > alpha) & !firstMove.IsCapOrPromo()) {
+            IncHistory(firstMove, checks, entry->Depth());
+            if (firstMove.GetScore() >= beta) {
               AddKiller(firstMove);
             }
           }
-          if (abs(entry->score) < WinningScore) {
-            return entry->score;
-          }
+          return firstMove.GetScore();
         }
-        if (entry->depth >= (depth - 3)) {
-          eval = entry->score;
+        if (entry->Depth() >= (depth - 3)) {
+          eval = firstMove.GetScore();
         }
         break;
       case HashEntry::LowerBound:
-        assert(abs(entry->score) < Infinity);
-        firstMove.Init(entry->moveBits, entry->score);
+        firstMove.Init(entry->MoveBits(), entry->Score(ply));
         assert(ValidateMove<color>(firstMove) == 0);
-        if ((entry->depth >= depth) & (entry->score >= beta) &
-            (abs(entry->score) < WinningScore) &
+        if ((entry->Depth() >= depth) & (firstMove.GetScore() >= beta) &
             ((!pvNode) | entry->HasPvFlag()))
         {
           pv[0] = firstMove;
           pvCount = 1;
           if (!firstMove.IsCapOrPromo()) {
-            IncHistory(firstMove, checks, entry->depth);
+            IncHistory(firstMove, checks, entry->Depth());
             AddKiller(firstMove);
           }
-          return entry->score;
+          return firstMove.GetScore();
         }
-        if ((entry->depth >= (depth - 3)) & (entry->score > eval)) {
-          eval = entry->score;
+        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() > eval)) {
+          eval = firstMove.GetScore();
         }
         break;
       default:
@@ -3762,7 +3692,7 @@ struct Node
         }
         entry->SetStalemate(positionKey);
         _tt.IncStalemates();
-        return _drawScore[0];
+        return (standPat = _drawScore[0]);
       }
       firstMove = *GetNextMove();
 
@@ -3780,7 +3710,7 @@ struct Node
     Exec<color>(firstMove, *child);
     child->pruneOK = true;
     child->depthChange = 0;
-    best = (depth > 1)
+    firstMove.Score() = best = (depth > 1)
         ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), !cutNode)
         : -child->QSearch<!color>(-beta, -alpha, 0);
     assert(child->depthChange >= 0);
@@ -3795,8 +3725,8 @@ struct Node
         IncHistory(firstMove, checks, pvDepth);
         AddKiller(firstMove);
       }
-      firstMove.Score() = beta;
-      entry->Set(positionKey, firstMove, pvDepth, HashEntry::LowerBound,
+      firstMove.Score() = ((abs(best) > MateScore) ? best : beta);
+      entry->Set(positionKey, firstMove, ply, pvDepth, HashEntry::LowerBound,
                 (((depthChange > 0) ? HashEntry::Extended : 0) |
                  (pvNode ? HashEntry::FromPV : 0)));
       return best;
@@ -3884,7 +3814,7 @@ struct Node
         return beta;
       }
       if (eval > best) {
-        best = eval;
+        move->Score() = best = eval;
         UpdatePV(*move);
         _stats.lmAlphaIncs++;
         assert((depth + child->depthChange) >= 0);
@@ -3894,8 +3824,8 @@ struct Node
             IncHistory(*move, checks, pvDepth);
             AddKiller(*move);
           }
-          move->Score() = beta;
-          entry->Set(positionKey, *move, pvDepth, HashEntry::LowerBound,
+          move->Score() = ((abs(best) > MateScore) ? best : beta);
+          entry->Set(positionKey, *move, ply, pvDepth, HashEntry::LowerBound,
                      (((depthChange > 0) ? HashEntry::Extended : 0) |
                       (pvNode ? HashEntry::FromPV : 0)));
           return best;
@@ -3916,21 +3846,18 @@ struct Node
     assert(alpha < beta);
 
     if (pvCount > 0) {
-      pv[0].Score() = alpha;
-      if (alpha > orig_alpha) {
+      assert(pv[0].Score() == best);
+      if (best > orig_alpha) {
         assert(pvNode);
         assert(pvDepth == depth);
-        if (!pv[0].IsCapOrPromo()) {
-          IncHistory(pv[0], checks, pvDepth);
-        }
-        entry->Set(positionKey, pv[0], pvDepth, HashEntry::ExactScore,
+        entry->Set(positionKey, pv[0], ply, pvDepth, HashEntry::ExactScore,
             (((depthChange > 0) ? HashEntry::Extended : 0) |
              HashEntry::FromPV));
       }
       else {
         assert(alpha == orig_alpha);
         assert(pvDepth <= depth);
-        entry->Set(positionKey, pv[0], pvDepth, HashEntry::UpperBound,
+        entry->Set(positionKey, pv[0], ply, pvDepth, HashEntry::UpperBound,
             (((depthChange > 0) ? HashEntry::Extended : 0) |
              (pvNode ? HashEntry::FromPV : 0)));
       }
@@ -3961,7 +3888,7 @@ struct Node
     // move transposition table move (if any) to front of list
     HashEntry* entry = _tt.Get(positionKey);
     assert(entry);
-    if (entry->positionKey == positionKey) {
+    if (entry->Key() == positionKey) {
       _tt.IncHits();
       if (moveCount > 1) {
         switch (entry->GetPrimaryFlag()) {
@@ -3972,7 +3899,7 @@ struct Node
         case HashEntry::UpperBound:
         case HashEntry::ExactScore:
         case HashEntry::LowerBound: {
-          const Move ttMove(entry->moveBits, entry->score);
+          const Move ttMove(entry->MoveBits(), entry->Score(ply));
           assert(ValidateMove<color>(ttMove) == 0);
           for (int i = 0; i < moveCount; ++i) {
             if (moves[i] == ttMove) {
@@ -4102,7 +4029,7 @@ struct Node
               (move->GetScore() > alpha) && (move->GetScore() < beta))
           {
             OutputPV(move->GetScore());
-            entry->Set(positionKey, *move, _depth, HashEntry::ExactScore,
+            entry->Set(positionKey, *move, ply, _depth, HashEntry::ExactScore,
                        HashEntry::FromPV);
           }
 
@@ -4598,8 +4525,8 @@ void Clunk::Initialize() {
   InitNodes();
   InitDistDir();
   InitMoveMaps();
-  _tt.Resize(64); // TODO make configurable
-  _pawnTT.Resize(1); // TODO make configurable
+  _tt.Resize(512); // TODO make configurable
+  _pawnTT.Resize(2); // TODO make configurable
   SetPosition(_STARTPOS);
   initialized = true;
 }
