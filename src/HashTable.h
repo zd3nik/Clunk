@@ -150,10 +150,10 @@ private:
 struct PawnEntry
 {
   enum {
-    Doubled   = 0x10,
-    Backward  = 0x20,
-    Supported = 0x40,
-    Passed    = 0x80
+    Backward  = 0x10,
+    Supported = 0x20,
+    Passed    = 0x40,
+    Potential = 0x80
   };
 
   uint64_t positionKey;

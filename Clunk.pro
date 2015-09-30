@@ -53,3 +53,6 @@ HEADERS += \
     src/senjo/UCIAdapter.h \
     src/Defs.h
 
+DISTFILES += \
+    epd/*.epd
+
