@@ -115,20 +115,52 @@ const Piece* _FIRST_SLIDER = (_piece + BishopOffset);
 const Piece* _FIRST_ROOK   = (_piece + RookOffset);
 
 //-----------------------------------------------------------------------------
-int                _stop = 0;
-int                _depth = 0;
-int                _seldepth = 0;
-int                _movenum = 0;
-int                _drawScore[2] = {0};
-uint64_t           _startTime = 0;
-char               _hist[0x1000] = {0};
-std::string        _currmove;
-Stats              _stats;
-Stats              _totalStats;
+int         _stop = 0;
+int         _depth = 0;
+int         _seldepth = 0;
+int         _movenum = 0;
+int         _drawScore[2] = {0};
+int         _qsearchDelta[MaxPlies] = {0};
+int         _razorDelta[5] = {0};
+int         _futilityDelta[5] = {0};
+uint64_t    _startTime = 0;
+char        _hist[0x1000] = {0};
+std::string _currmove;
+Stats       _stats;
+Stats       _totalStats;
 
 //-----------------------------------------------------------------------------
 TranspositionTable<PawnEntry> _pawnTT;
 TranspositionTable<HashEntry> _tt;
+
+//-----------------------------------------------------------------------------
+int QSearchDelta(const int depth) {
+  const double x = (depth + 1);
+  return static_cast<int>(150 + (1 / ((x * x) / 1400)));
+}
+
+//-----------------------------------------------------------------------------
+int RazorDelta(const int depth) {
+  const double x = (64 * depth);
+  return static_cast<int>(512 + (x * (x / 128)));
+}
+
+//-----------------------------------------------------------------------------
+int FutilityDelta(const int depth) {
+  const double x = (200 * depth);
+  return std::max<int>((200 * depth), static_cast<int>(x * (x / 256)));
+}
+
+//-----------------------------------------------------------------------------
+void InitDeltas() {
+  for (int depth = 0; depth < MaxPlies; ++depth) {
+    _qsearchDelta[depth] = QSearchDelta(depth);
+  }
+  for (int depth = 0; depth < 5; ++depth) {
+    _razorDelta[depth] = RazorDelta(depth);
+    _futilityDelta[depth] = FutilityDelta(depth);
+  }
+}
 
 //-----------------------------------------------------------------------------
 void InitSearch(const Color colorToMove, const uint64_t startTime) {
@@ -1094,18 +1126,6 @@ const char* NextWord(const char* p) {
 const char* NextSpace(const char* p) {
   while (p && *p && !isspace(*p)) ++p;
   return p;
-}
-
-//-----------------------------------------------------------------------------
-inline int RazorDelta(const int depth) {
-  const int x = (64 * depth);
-  return (500 + (x * (x / 128)));
-}
-
-//-----------------------------------------------------------------------------
-inline int FutilityDelta(const int depth) {
-  const int x = (200 * depth);
-  return std::max<int>(x, (x * (x / 256)));
 }
 
 //-----------------------------------------------------------------------------
@@ -3748,6 +3768,17 @@ struct Node
       _stats.qexecs++;
       Exec<color>(*move, *child);
       assert(checks | move->IsCapOrPromo() | (child->checks && !depth));
+      if (!(checks | child->checks | (move->Promo() == (color|Queen)) |
+            (abs(alpha) >= WinningScore)) &
+          ((standPat + ValueOf(move->Cap()) + _qsearchDelta[-depth]) < alpha))
+      {
+        _stats.deltaCount++;
+        Undo<color>(*move);
+        if (_stop) {
+          return beta;
+        }
+        continue;
+      }
       move->Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
       Undo<color>(*move);
       if (_stop) {
@@ -3889,29 +3920,55 @@ struct Node
       }
     }
 
-//    // forward pruning prerequisites
+    // forward pruning prerequisites
 //    if (pvNode || !(pruneOK & !checks & (depthChange <= 0))) {
 //      goto search_main;
 //    }
 
-//    // null move heuristics prerequisites
+    // razoring (fail low pruning)
+//    if ((depth < 4) & (abs(alpha) < WinningScore) &
+//        // TODO && no pawns on 2nd/7th rank
+//        !parent->checks & ((eval + _razorDelta[depth]) <= alpha))
+//    {
+//      _stats.rzrCount++;
+//      if ((depth <= 1) && ((eval + _razorDelta[3 * depth]) <= alpha)) {
+//        _stats.rzrEarlyOut++;
+//        return QSearch<color>(alpha, beta, 0);
+//      }
+//      const int ralpha = (alpha - _razorDelta[depth]);
+//      const int val = QSearch<color>(ralpha, (ralpha + 1), 0);
+//      if (_stop) {
+//        return beta;
+//      }
+//      if (val <= ralpha) {
+//        _stats.rzrCutoffs++;
+//        return val;
+//      }
+//      moveCount = pvCount = 0;
+//    }
+
+
+    // null move heuristics prerequisites
 //    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
 //        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn]) < 4))
 //    {
 //      goto search_main;
 //    }
 
-//    // futility pruning (static null move pruning)
-//    if ((cutNode & (depth < 5) & (abs(beta) < WinningScore)) &&
-//        ((eval - FutilityDelta(depth)) >= beta))
+    // futility pruning (static null move pruning)
+//    if (cutNode & (depth < 5) & (abs(beta) < WinningScore) &
+//        ((eval - _futilityDelta[depth]) >= beta))
 //    {
+//      assert(!moveCount);
+//      assert(!pvCount);
 //      _stats.futility++;
-//      pvCount = 0;
-//      return beta; // TODO (eval - FutilityDelta(depth));
+//      return beta; // TODO (eval - _futilityDelta[depth]);
 //    }
 
+    // null move pruning
 //    if ((depth > 1) & (eval >= beta)) {
-//      // null move pruning
+//      assert(!moveCount);
+//      assert(!pvCount);
 //      ExecNullMove<color>(*child);
 //      child->pruneOK = false;
 //      child->depthChange = 0;
@@ -3925,7 +3982,6 @@ struct Node
 //      if (eval >= beta) {
 //        // TODO do verification search if depth reduction > 4
 //        _stats.nmCutoffs++;
-//        pvCount = 0;
 //        return (standPat >= beta) ? standPat : beta; // do not return eval
 //      }
 //    }
@@ -4023,7 +4079,8 @@ struct Node
     }
 
     // search remaining moves
-//    const bool lmr_ok = ((cutNode | !pvNode) & !checks & (depth > 2));
+//    const bool lmr_ok = (!(pvNode & !firstMove.Type()) & !checks & (depth > 2));
+//    const int lmr_count = (4 * (pvNode | !firstMove.Type()));
     Move* move;
     moveIndex = 0;
     while ((move = GetNextMove())) {
@@ -4035,19 +4092,17 @@ struct Node
       Exec<color>(*move, *child);
 
       // late move reductions
-      _stats.lateMoves++;
-//      if (lmr_ok) _stats.lmCandidates++;
-//      if (lmr_ok &
+//      _stats.lateMoves++;
+//      _stats.lmCandidates += lmr_ok;
+//      if (lmr_ok & (moveIndex >= lmr_count) &
 //          !move->IsCapOrPromo() &
 //          !child->checks &
 //          !IsKiller(*move) &
-//          (_hist[move->HistoryIndex()] < 0) &
-//          (!pvNode || (moveIndex > 7)))
+//          (_hist[move->HistoryIndex()] < 0))
 //      {
 //        _stats.lmReductions++;
 //        child->pruneOK = true;
-//        child->depthChange = -(1 + (!pvNode &
-//                                    (-child->standPat <= -parent->standPat)));
+//        child->depthChange = -(1 + cutNode);
 //      }
 //      else {
         child->pruneOK = true;
@@ -4795,6 +4850,7 @@ void Clunk::ClearSearchData() {
 
 //-----------------------------------------------------------------------------
 void Clunk::Initialize() {
+  InitDeltas();
   InitNodes();
   InitDistDir();
   InitMoveMaps();
