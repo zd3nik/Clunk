@@ -51,6 +51,7 @@ public:
 
 protected:
   uint64_t MyPerft(const int depth);
+  uint64_t MyQPerft(const int depth);
   std::string MyGo(const int depth,
                    const int movestogo = 0,
                    const uint64_t movetime = 0,

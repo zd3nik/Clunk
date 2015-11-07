@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_UCI_ADAPTER_H
 #define SENJO_UCI_ADAPTER_H
@@ -28,9 +28,9 @@
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Convenience class to handle UCI communication for a ChessEngine
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class UCIAdapter
 {
 public:
@@ -72,9 +72,10 @@ private:
   void MoveCommand(const char* params);
   void NewCommand(const char* params);
   void OptsCommand(const char* params);
-  void PerftCommand(const char* params);
+  void PerftCommand(const char* params, const bool qperft);
   void PrintCommand(const char* params);
   void TestCommand(const char* params);
+  void BTestCommand(const char* params);
 
   // UCI commands
   bool QuitCommand(const char* params);

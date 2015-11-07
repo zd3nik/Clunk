@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_BACKGROUND_COMMAND_H
 #define SENJO_BACKGROUND_COMMAND_H
@@ -29,9 +29,9 @@
 namespace senjo
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Base class for a command that should run on a background thread
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class BackgroundCommand
 {
 public:
@@ -67,7 +67,6 @@ public:
   //--------------------------------------------------------------------------
   virtual std::string Description() const = 0;
 
-protected:
   //--------------------------------------------------------------------------
   //! \brief Parse command parameters
   //! \param[in] params The command parameters
@@ -91,9 +90,9 @@ private:
   static void Run(void* data);
 };
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Wrapper for the UCI "register" command
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class RegisterCommandHandle : public BackgroundCommand
 {
 public:
@@ -115,9 +114,9 @@ private:
   std::string name;
 };
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Wrapper for the UCI "go" command
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class GoCommandHandle : public BackgroundCommand
 {
 public:
@@ -148,16 +147,20 @@ private:
   uint64_t wtime;
 };
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Wrapper for the "perft" command (not a UCI command)
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class PerftCommandHandle : public BackgroundCommand
 {
 public:
-  PerftCommandHandle(ChessEngine* engine) : BackgroundCommand(engine) { }
+  PerftCommandHandle(ChessEngine* engine, const bool qperft = false)
+    : BackgroundCommand(engine),
+      qperft(qperft),
+      command(qperft ? "qperft" : "perft")
+  { }
   std::string Usage() const {
-    return "perft [depth <x>] [count <x>] [skip <x>] [leafs <x>] "
-        "[epd] [file <x> (default=" + _TEST_FILE + ")]";
+    return (command + " [depth <x>] [count <x>] [skip <x>] [leafs <x>] "
+                      "[epd] [file <x> (default=" + _TEST_FILE + ")]");
   }
   std::string Description() const {
     return "Execute performance test.";
@@ -172,16 +175,18 @@ private:
 
   static const std::string _TEST_FILE;
 
+  bool        qperft;
   int         count;
   int         skip;
   int         maxDepth;
   uint64_t    maxLeafs;
   std::string fileName;
+  std::string command;
 };
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Wrapper for the "test" command (not a UCI command)
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class TestCommandHandle : public BackgroundCommand
 {
 public:
@@ -194,7 +199,6 @@ public:
     return "Find the best move for a suite of test positions.";
   }
 
-protected:
   bool Parse(const char* params);
   void Execute();
 

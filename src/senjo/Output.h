@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_OUTPUT_H
 #define SENJO_OUTPUT_H
@@ -28,7 +28,7 @@
 namespace senjo
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Thread safe stdout stream
 //! Instantiating this class will obtain a lock on a mtuex guarding stdout.
 //! The stdout mutex is released when the instantiated object is destroyed.
@@ -86,7 +86,7 @@ namespace senjo
 //! Notice it is necessary to explicitly prefix all but the first line with
 //! "info string ".  If you know what you're doing concerning the UCI protocol
 //! you can omit "info string " where appropriate.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class Output
 {
 public:

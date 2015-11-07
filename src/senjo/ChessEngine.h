@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_CHESS_ENGINE_H
 #define SENJO_CHESS_ENGINE_H
@@ -28,11 +28,11 @@
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Base class for Senjo compatible chess engines
 //! Derive from this class to create a chess engine that may be used with
 //! the Senjo UCIAdapter.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 class ChessEngine
 {
 public:
@@ -254,6 +254,14 @@ public:
   uint64_t Perft(const int depth);
 
   //--------------------------------------------------------------------------
+  //! \brief Do performance test on the current position
+  //! This will call the MyQPerft() method, which you must implement.
+  //! \param[in] depth How many half-moves (plies) to search
+  //! \return The number of nodes visited
+  //--------------------------------------------------------------------------
+  uint64_t QPerft(const int depth);
+
+  //--------------------------------------------------------------------------
   //! \brief Execute search on current position to find best move
   //! This will call the MyGo() method, which you must implement.
   //! \param[in] depth Maximum number of half-moves (plies) to search
@@ -361,6 +369,20 @@ protected:
   //! \return The number of leaf nodes visited at \p depth
   //--------------------------------------------------------------------------
   virtual uint64_t MyPerft(const int depth) = 0;
+
+  //--------------------------------------------------------------------------
+  //! \brief Do performance test on the current position with quiescence search
+  //! Similar to Perft but counts total number of nodes visited instead of
+  //! only counting nodes visited at a specific depth.
+  //! This routine search all legal moves to the given depth and then uses
+  //! typical quiescence search logic:
+  //! * when in check search all legal moves
+  //! * when search depth is 0 only search captures, promotions, and checks
+  //! * when search depth is < 0 only search captures and promotions
+  //! \param[in] depth How many half-moves (plies) to search
+  //! \return The number of nodes visited
+  //--------------------------------------------------------------------------
+  virtual uint64_t MyQPerft(const int depth) = 0;
 
   //--------------------------------------------------------------------------
   //! \brief Execute search on current position to find best move

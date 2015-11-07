@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_PLATFORM_H
 #define SENJO_PLATFORM_H
@@ -63,10 +63,10 @@
 namespace senjo
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Get current millisecond timestamp
 //! \return Number of milliseconds since epoch
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline uint64_t Now()
 {
 #ifdef WIN32
@@ -89,12 +89,12 @@ static inline bool MillisecondSleep(const unsigned int msecs)
 #endif
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Convert unsigned 64-bit integer to double
 //! Disables compiler warning whe using windows compiler
 //! \param[in] value Unsigned 64-bit integer
 //! \return \p value converted to double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double ToDouble(const uint64_t value)
 {
 #ifdef WIN32
@@ -107,120 +107,120 @@ static inline double ToDouble(const uint64_t value)
 #endif
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Convert millisecond timestamp to seconds as double
 //! \param[in] msecs Millisecond timestamp
 //! \return \p msecs converted to seconds as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double ToSeconds(const uint64_t msecs)
 {
   return (ToDouble(msecs) / 1000.0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate average from two doubles
 //! \param[in] total The numerator
 //! \param[in] count The denominator
 //! \return \p total divided by \p count as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Average(const double total, const double count)
 {
   return (count ? (total / count) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate average from two unsigned 64-bit integers
 //! \param[in] total The numerator
 //! \param[in] count The denominator
 //! \return \p total divided by \p count as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Average(const uint64_t total, const uint64_t count)
 {
   return (count ? (ToDouble(total) / ToDouble(count)) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate average from two native integers
 //! \param[in] total The numerator
 //! \param[in] count The denominator
 //! \return \p total divided by \p count as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Average(const int total, const int count)
 {
   return (count ? (ToDouble(total) / ToDouble(count)) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate K-rate from two doubles
 //! \param[in] count The number of items
 //! \param[in] msecs The number of milliseconds spent
 //! \return \p count per seconds as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Rate(const double count, const double msecs)
 {
   return (msecs ? ((count / msecs) * 1000) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate K-rate from two unsigned 64-bit integers
 //! \param[in] count The number of items
 //! \param[in] msecs The number of milliseconds spent
 //! \return \p count per seconds as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Rate(const uint64_t count, const uint64_t msecs)
 {
   return Rate(ToDouble(count), ToDouble(msecs));
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate K-rate from two native integers
 //! \param[in] count The number of items
 //! \param[in] msecs The number of milliseconds spent
 //! \return \p count per seconds as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Rate(const int count, const int msecs)
 {
   return Rate(static_cast<double>(count), static_cast<double>(msecs));
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate percentage from two doubles
 //! \param[in] top The numerator
 //! \param[in] bottom The denominator
 //! \return \p top divided by \p bottom multiplied by 100 as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Percent(const double top, const double bottom)
 {
   return (bottom ? (100 * (top / bottom)) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate percentage from two unsigned 64-bit integers
 //! \param[in] top The numerator
 //! \param[in] bottom The denominator
 //! \return \p top divided by \p bottom multiplied by 100 as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Percent(const uint64_t top, const uint64_t bottom)
 {
   return (bottom ? (100 * (ToDouble(top) / ToDouble(bottom))) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Calculate percentage from two native integers
 //! \param[in] top The numerator
 //! \param[in] bottom The denominator
 //! \return \p top divided by \p bottom multiplied by 100 as double
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline double Percent(const int top, const int bottom)
 {
   return (bottom ? (100 * (static_cast<double>(top) / bottom)) : 0);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Move \p position to beginning of next word
 //! \param[in,out] position Pointer to position within a NULL terminated string
 //! \return Updated \p position value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline const char* NextWord(const char*& position)
 {
   while (position && *position && isspace(*position)) {
@@ -229,11 +229,11 @@ static inline const char* NextWord(const char*& position)
   return position;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Move \p position to beginning of next word
 //! \param[in,out] position Pointer to position within a NULL terminated string
 //! \return Updated \p position value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline char* NextWord(char*& position)
 {
   while (position && *position && isspace(*position)) {
@@ -242,11 +242,11 @@ static inline char* NextWord(char*& position)
   return position;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Move \p position to beginning of next whitespace segment
 //! \param[in,out] position Pointer to position within a NULL terminated string
 //! \return Updated \p position value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline const char* NextSpace(const char*& position)
 {
   while (position && *position && !isspace(*position)) {
@@ -255,11 +255,11 @@ static inline const char* NextSpace(const char*& position)
   return position;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Move \p position to beginning of next whitespace segment
 //! \param[in,out] position Pointer to position within a NULL terminated string
 //! \return Updated \p position value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline char* NextSpace(char*& position)
 {
   while (position && *position && !isspace(*position)) {
@@ -268,11 +268,11 @@ static inline char* NextSpace(char*& position)
   return position;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Move \p position to last character of current word
 //! \param[in,out] position Pointer to position within a NULL terminated string
 //! \return Updated \p position value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline char* WordEnd(char*& position)
 {
   while (position && *position && position[1] && !isspace(position[1])) {
@@ -281,13 +281,13 @@ static inline char* WordEnd(char*& position)
   return position;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Prepare a string for parsing
 //! All whitespace in \p str is converted to spaces.
 //! The first new-line or carriage-return found is converted to NULL terminator.
 //! \param[in,out] str The string, updated to start at first word
 //! \return Updated \p str value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline char* NormalizeString(char*& str)
 {
   for (char* n = str; n && *n; ++n) {
@@ -302,12 +302,12 @@ static inline char* NormalizeString(char*& str)
   return NextWord(str);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Does the given parameter name match the current word in a string?
 //! \param[in] name The parameter name to check for
 //! \param[in,out] params Current word, updated to next word if matches
 //! \return true if current word in \p params matches \p name
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline bool ParamMatch(const std::string& name, const char*& params)
 {
   if (name.empty() || !params) {
@@ -322,13 +322,13 @@ static inline bool ParamMatch(const std::string& name, const char*& params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Does the given parameter name exist at the current word in a string?
 //! \param[in] name The parameter name to check for
 //! \param[out] exists Set to true if current word matches \p name
 //! \param[in,out] params The current word in string of parameters
 //! \return true if current word in \p params matches \p name
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline bool HasParam(const std::string& name, bool& exists,
                             const char*& params)
 {
@@ -339,14 +339,14 @@ static inline bool HasParam(const std::string& name, bool& exists,
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Does 'name value' pattern exist at current position in a string?
 //! \param[in] name The parameter name to check for
 //! \param[out] value Set to word after \p name if current word matches \p name
 //! \param[in,out] params The current word in string of parameters
 //! \param[out] invalid Set to true if \p name is not followed by a value
 //! \return true if current word in \p params matches \p name and has value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline bool StringParam(const std::string& name, std::string& value,
                                const char*& params, bool& invalid)
 {
@@ -365,14 +365,14 @@ static inline bool StringParam(const std::string& name, std::string& value,
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Does 'name number' pattern exist at current position in a string?
 //! \param[in] name The parameter name to check for
 //! \param[out] value Set to value after \p name if current word matches \p name
 //! \param[in,out] params The current word in string of parameters
 //! \param[out] invalid Set to true if \p name is not followed by a number
 //! \return true if current word in \p params matches \p name and has value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 template<typename Number>
 static inline bool NumberParam(const std::string& name, Number& value,
                                const char*& params, bool& invalid)
@@ -398,13 +398,13 @@ static inline bool NumberParam(const std::string& name, Number& value,
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Consume the value at current position in a string
 //! \param[out] value Populated with the value in \p params
 //! \param[in,out] params The current position in a string of parameter values
 //! \param[int] next THe next expected parameter name
 //! \return true If a non-empty value was assigned to \p value
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static inline bool ParamValue(std::string& value, const char*& params,
                               const std::string& next)
 {

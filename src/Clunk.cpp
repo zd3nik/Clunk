@@ -1135,7 +1135,7 @@ inline void IncHistory(const Move& move, const int check, const int depth) {
   if (!check) {
     const int idx = move.HistoryIndex();
     const int val = (_hist[idx] + depth + 2);
-    _hist[idx] = static_cast<char>(std::min<int>(val, 40));
+    _hist[idx] = static_cast<char>(std::min<int>(val, 16));
   }
 }
 
@@ -1179,8 +1179,8 @@ struct Node
   uint64_t pieceKey;
   uint64_t positionKey;
   Move lastMove;
-  int standPat;
   int checks;
+  int standPat;
   int atkCount[2];
   int atkScore[2];
 
@@ -1198,6 +1198,7 @@ struct Node
   int depthChange;
   int pvCount;
   Move killer[2];
+//  Move counter[128][128];
   Move pv[MaxPlies];
 
   //---------------------------------------------------------------------------
@@ -1235,21 +1236,25 @@ struct Node
 
   //---------------------------------------------------------------------------
   inline void AddKiller(const Move& move) {
+    assert(lastMove.IsValid());
     if (move != killer[0]) {
       killer[1] = killer[0];
       killer[0] = move;
     }
+//    counter[lastMove.From()][lastMove.To()] = move;
   }
 
   //---------------------------------------------------------------------------
   inline bool IsKiller(const Move& move) const {
-    return ((move == killer[0]) | (move == killer[1]));
+    return ((move == killer[0]) | (move == killer[1]) /*|
+            (move == counter[lastMove.From()][lastMove.To()])*/);
   }
 
   //---------------------------------------------------------------------------
   void ClearKillers() {
     killer[0].Clear();
     killer[1].Clear();
+//    memset(counter, 0, sizeof(counter));
   }
 
   //---------------------------------------------------------------------------
@@ -1507,24 +1512,14 @@ struct Node
 
   //---------------------------------------------------------------------------
   inline void AddMove(const MoveType type,
-                      const int from, const int to, int score,
+                      const int from, const int to, const int score,
                       const int cap = 0, const int promo = 0)
   {
-    assert(IS_MTYPE(type));
-    assert(IS_SQUARE(from));
-    assert(IS_SQUARE(to));
-    assert(from != to);
-    assert(abs(score) < Infinity);
     assert(moveCount >= 0);
     assert((moveCount + 1) < MaxMoves);
     Move& move = moves[moveCount++];
     move.Set(type, from, to, cap, promo, score);
-    if (IsKiller(move)) {
-      move.Score() += 50;
-    }
-    else if (!move.IsCapOrPromo()) {
-      move.Score() += _hist[move.HistoryIndex()];
-    }
+    move.Score() += (50 * IsKiller(move));
   }
 
   //---------------------------------------------------------------------------
@@ -3049,6 +3044,52 @@ struct Node
   }
 
   //---------------------------------------------------------------------------
+  template<Color color>
+  uint64_t QPerftSearch(const int depth) {
+    if (depth <= 0) {
+      GenerateMoves<color, true>(depth);
+    }
+    else {
+      GenerateMoves<color, false>(depth);
+    }
+    if ((!child) | (!moveCount) | (depth < 0)) {
+      return (moveCount + 1);
+    }
+
+    uint64_t count = 1;
+    while (!_stop && (moveIndex < moveCount)) {
+      const Move& move = moves[moveIndex++];
+      Exec<color>(move, *child);
+      count += child->QPerftSearch<!color>(depth - 1);
+      Undo<color>(move);
+    }
+    return count;
+  }
+
+  //---------------------------------------------------------------------------
+  template<Color color>
+  uint64_t QPerftSearchRoot(const int depth) {
+    assert(!ply);
+    assert(!parent);
+    assert(child);
+
+    GenerateMoves<color, false>(depth);
+    std::sort(moves, (moves + moveCount), Move::LexicalCompare);
+
+    uint64_t total = 0;
+    while (!_stop && (moveIndex < moveCount)) {
+      const Move& move = moves[moveIndex++];
+      Exec<color>(move, *child);
+      const uint64_t count = child->QPerftSearch<!color>(depth - 1);
+      Undo<color>(move);
+      senjo::Output() << move.ToString() << ' ' << count << ' '
+                      << move.GetScore();
+      total += count;
+    }
+    return total;
+  }
+
+  //---------------------------------------------------------------------------
   inline void UpdatePV(const Move& move) {
     pv[0] = move;
     if (child) {
@@ -3743,9 +3784,9 @@ struct Node
       if (standPat >= beta) {
         return standPat;
       }
-      assert(standPat > best);
-      best = standPat;
       alpha = std::max<int>(alpha, standPat);
+      best = standPat;
+      assert(best <= alpha);
       assert(alpha < beta);
     }
 
@@ -3767,18 +3808,6 @@ struct Node
       assert(move->IsValid());
       _stats.qexecs++;
       Exec<color>(*move, *child);
-      assert(checks | move->IsCapOrPromo() | (child->checks && !depth));
-      if (!(checks | child->checks | (move->Promo() == (color|Queen)) |
-            (abs(alpha) >= WinningScore)) &
-          ((standPat + ValueOf(move->Cap()) + _qsearchDelta[-depth]) < alpha))
-      {
-        _stats.deltaCount++;
-        Undo<color>(*move);
-        if (_stop) {
-          return beta;
-        }
-        continue;
-      }
       move->Score() = -child->QSearch<!color>(-beta, -alpha, (depth - 1));
       Undo<color>(*move);
       if (_stop) {
@@ -3831,17 +3860,20 @@ struct Node
 
     depth += depthChange;
 
-    // check extensions
-    if ((checks != 0) & (depthChange <= 0) & (parent->depthChange <= 0)) {
-      _stats.chkExts++;
-      depthChange++;
-      depth++;
+    if (checks) {
+      // check extensions
+      if ((depthChange <= 0) & (parent->depthChange <= 0)) {
+        _stats.chkExts++;
+        depthChange++;
+        depth++;
+      }
     }
+//    else {
+//      // update standPat with full static positional evaluation
+//      Evaluate();
+//    }
 
-    // update standPat with full static positional evaluation
-    Evaluate();
     int eval = standPat;
-
     const bool pvNode = (type == PV);
     Move firstMove;
 
@@ -3863,9 +3895,9 @@ struct Node
           pvCount = 1;
           return firstMove.GetScore();
         }
-        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() < eval)) {
-          eval = firstMove.GetScore();
-        }
+//        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() < eval)) {
+//          eval = firstMove.GetScore();
+//        }
         break;
       case HashEntry::ExactScore:
         assert(entry->HasPvFlag());
@@ -3886,9 +3918,9 @@ struct Node
           }
           return firstMove.GetScore();
         }
-        if (entry->Depth() >= (depth - 3)) {
-          eval = firstMove.GetScore();
-        }
+//        if (entry->Depth() >= (depth - 3)) {
+//          eval = firstMove.GetScore();
+//        }
         break;
       case HashEntry::LowerBound:
         firstMove.Init(entry->MoveBits(), entry->Score(ply));
@@ -3904,9 +3936,9 @@ struct Node
           }
           return firstMove.GetScore();
         }
-        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() > eval)) {
-          eval = firstMove.GetScore();
-        }
+//        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() > eval)) {
+//          eval = firstMove.GetScore();
+//        }
         break;
       default:
         assert(false);
@@ -3946,7 +3978,6 @@ struct Node
 //      }
 //      moveCount = pvCount = 0;
 //    }
-
 
     // null move heuristics prerequisites
 //    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
@@ -3988,10 +4019,10 @@ struct Node
 
 //search_main:
 
+    pruneOK = false;
+
     // internal iterative deepening
-    if (!firstMove.Type() & (beta < Infinity) &
-        ((beta - 1) > -Infinity) & (depth >= (pvNode ? 4 : 6)))
-    {
+    if (!firstMove.Type() & (beta < Infinity) & (depth >= (pvNode ? 4 : 6))) {
       assert(!pvCount);
       _stats.iidCount++;
       // subtract depthChange because it will be added again at top of Search()
@@ -4080,7 +4111,6 @@ struct Node
 
     // search remaining moves
 //    const bool lmr_ok = (!(pvNode & !firstMove.Type()) & !checks & (depth > 2));
-//    const int lmr_count = (4 * (pvNode | !firstMove.Type()));
     Move* move;
     moveIndex = 0;
     while ((move = GetNextMove())) {
@@ -4092,17 +4122,18 @@ struct Node
       Exec<color>(*move, *child);
 
       // late move reductions
-//      _stats.lateMoves++;
+      _stats.lateMoves++;
 //      _stats.lmCandidates += lmr_ok;
-//      if (lmr_ok & (moveIndex >= lmr_count) &
+//      if (lmr_ok &
+//          (!pvNode || (moveIndex > 3)) &
 //          !move->IsCapOrPromo() &
-//          !child->checks &
 //          !IsKiller(*move) &
+//          !child->checks &
 //          (_hist[move->HistoryIndex()] < 0))
 //      {
 //        _stats.lmReductions++;
 //        child->pruneOK = true;
-//        child->depthChange = -(1 + cutNode);
+//        child->depthChange = -(1 + (cutNode | (standPat < -parent->standPat)));
 //      }
 //      else {
         child->pruneOK = true;
@@ -4950,6 +4981,31 @@ uint64_t Clunk::MyPerft(const int depth) {
 }
 
 //-----------------------------------------------------------------------------
+uint64_t Clunk::MyQPerft(const int depth) {
+  if (!initialized) {
+    senjo::Output() << "Engine not initialized";
+    return 0;
+  }
+
+  if (_debug) {
+    PrintBoard();
+    senjo::Output() << GetFEN();
+  }
+
+  InitSearch(COLOR(root->state), _startTime);
+
+  const int d = std::min<int>(depth, MaxPlies);
+  const uint64_t count = WhiteToMove() ? root->QPerftSearchRoot<White>(d)
+                                       : root->QPerftSearchRoot<Black>(d);
+
+  const uint64_t msecs = (senjo::Now() - _startTime);
+  senjo::Output() << "Qperft " << count << ' '
+                  << senjo::Rate((count / 1000), msecs) << " KNodes/sec";
+
+  return count;
+}
+
+//-----------------------------------------------------------------------------
 std::string Clunk::MyGo(const int depth,
                         const int /*movestogo*/,
                         const uint64_t /*movetime*/,
@@ -4976,17 +5032,16 @@ std::string Clunk::MyGo(const int depth,
   std::string bestmove = (WhiteToMove() ? root->SearchRoot<White>(d)
                                         : root->SearchRoot<Black>(d));
 
+  _stats.ttGets   += _tt.Gets();
+  _stats.ttHits   += _tt.Hits();
+  _stats.ttMates  += _tt.Checkmates();
+  _stats.ttStales += _tt.Stalemates();
+  _stats.ptGets   += _pawnTT.Gets();
+  _stats.ptHits   += _pawnTT.Hits();
   _totalStats += _stats;
+
   if (_debug) {
     senjo::Output() << "--- Stats";
-    senjo::Output() << _tt.Gets() << " gets, "
-                    << _tt.Hits() << " hits ("
-                    << senjo::Percent(_tt.Hits(), _tt.Gets()) << "%), "
-                    << _tt.Checkmates() << " checkmates, "
-                    << _tt.Stalemates() << " stalemates";
-    senjo::Output() << _pawnTT.Gets() << " pawn gets, "
-                    << _pawnTT.Hits() << " pawn hits ("
-                    << senjo::Percent(_pawnTT.Hits(), _pawnTT.Gets()) << "%)";
     _stats.Print();
   }
 

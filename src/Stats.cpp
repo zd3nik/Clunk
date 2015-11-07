@@ -1,6 +1,6 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>, All rights reserved
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "senjo/Output.h"
 #include "Stats.h"
@@ -10,10 +10,16 @@ using namespace senjo;
 namespace clunk
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void Stats::Clear()
 {
   statCount     = 1;
+  ttGets        = 0;
+  ttHits        = 0;
+  ttMates       = 0;
+  ttStales      = 0;
+  ptGets        = 0;
+  ptHits        = 0;
   snodes        = 0;
   qnodes        = 0;
   chkExts       = 0;
@@ -40,9 +46,15 @@ void Stats::Clear()
   lmAlphaIncs   = 0;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 Stats& Stats::operator+=(const Stats& other) {
   statCount     += 1;
+  ttGets        += other.ttGets;
+  ttHits        += other.ttHits;
+  ttMates       += other.ttMates;
+  ttStales      += other.ttStales;
+  ptGets        += other.ptGets;
+  ptHits        += other.ptHits;
   snodes        += other.snodes;
   qnodes        += other.qnodes;
   chkExts       += other.chkExts;
@@ -70,7 +82,7 @@ Stats& Stats::operator+=(const Stats& other) {
   return *this;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static uint64_t Avg(const uint64_t total, const uint64_t count) {
   if (count) {
     return ((total + (count - 1)) / count);
@@ -78,9 +90,15 @@ static uint64_t Avg(const uint64_t total, const uint64_t count) {
   return total;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 Stats Stats::Average() const {
   Stats avg;
+  avg.ttGets        = Avg(ttGets,       statCount);
+  avg.ttHits        = Avg(ttHits,       statCount);
+  avg.ttMates       = Avg(ttMates,      statCount);
+  avg.ttStales      = Avg(ttStales,     statCount);
+  avg.ptGets        = Avg(ptGets,       statCount);
+  avg.ptHits        = Avg(ptHits,       statCount);
   avg.snodes        = Avg(snodes,       statCount);
   avg.qnodes        = Avg(qnodes,       statCount);
   avg.chkExts       = Avg(chkExts,      statCount);
@@ -108,8 +126,19 @@ Stats Stats::Average() const {
   return avg;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void Stats::Print() {
+  if (ttGets) {
+    Output() << ttGets << " gets, " << ttHits << " hits ("
+             << Percent(ttHits, ttGets) << "%), " << ttMates
+             << " checkmates, " << ttStales << " stalemates";
+  }
+
+  if (ptGets) {
+    Output() << ptGets << " pawn gets, " << ptHits << " pawn hits ("
+             << Percent(ptHits, ptGets) << "%)";
+  }
+
   if (chkExts || oneReplyExts || hashExts) {
     Output() << chkExts << " check extensions, "
              << oneReplyExts << " one reply extensions, "
@@ -120,7 +149,7 @@ void Stats::Print() {
            << qexecs << " qexecs (" << Percent(qexecs, execs) << "%)";
 
   const uint64_t searches = (snodes + qnodes);
-  Output() << snodes << " searches (" << Percent(snodes, searches) << "%), "
+  Output() << snodes << " searches, "
            << qnodes << " qsearches (" << Percent(qnodes, searches) << "%)";
 
   if (deltaCount) {

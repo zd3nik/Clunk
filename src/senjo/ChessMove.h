@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef SENJO_MOVE_H
 #define SENJO_MOVE_H
@@ -28,9 +28,9 @@
 namespace senjo
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Simple chess move representation
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 struct ChessMove {
   ChessMove() {
     Clear();

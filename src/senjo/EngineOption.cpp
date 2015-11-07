@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,15 +18,15 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "EngineOption.h"
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // static variables
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 static const char* OPT_BUTTON_NAME  = "button";
 static const char* OPT_CHECK_NAME   = "check";
 static const char* OPT_COMBO_NAME   = "combo";
@@ -34,7 +34,7 @@ static const char* OPT_SPIN_NAME    = "spin";
 static const char* OPT_STRING_NAME  = "string";
 static const char* OPT_UNKNOWN_NAME = "unknown";
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 EngineOption::OptionType EngineOption::ToOptionType(const std::string& name)
 {
   if (!stricmp(name.c_str(), OPT_BUTTON_NAME)) {
@@ -55,7 +55,7 @@ EngineOption::OptionType EngineOption::ToOptionType(const std::string& name)
   return OptionType::Unknown;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string EngineOption::GetTypeName(const EngineOption::OptionType type)
 {
   switch (type) {
@@ -70,7 +70,7 @@ std::string EngineOption::GetTypeName(const EngineOption::OptionType type)
   return OPT_UNKNOWN_NAME;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 EngineOption::EngineOption(const std::string& optName,
                            const std::string& defaultValue,
                            const OptionType optType,
@@ -87,7 +87,7 @@ EngineOption::EngineOption(const std::string& optName,
 {
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 int64_t EngineOption::GetIntValue() const
 {
   int64_t value = 0;
@@ -95,7 +95,7 @@ int64_t EngineOption::GetIntValue() const
   return value;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 int64_t EngineOption::GetDefaultIntValue() const
 {
   int64_t value = 0;
@@ -103,7 +103,7 @@ int64_t EngineOption::GetDefaultIntValue() const
   return value;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::set<int64_t> EngineOption::GetIntComboValues() const
 {
   std::set<int64_t> values;
@@ -116,7 +116,7 @@ std::set<int64_t> EngineOption::GetIntComboValues() const
   return values;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool EngineOption::SetValue(const std::string& value) {
   int64_t intval = 0;
   switch (optType) {
@@ -147,7 +147,7 @@ bool EngineOption::SetValue(const std::string& value) {
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool EngineOption::SetValue(const int64_t value)
 {
   char sbuf[32];
@@ -155,7 +155,7 @@ bool EngineOption::SetValue(const int64_t value)
   return SetValue(std::string(sbuf));
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void EngineOption::SetDefaultValue(const int64_t value)
 {
   char sbuf[32];
@@ -163,7 +163,7 @@ void EngineOption::SetDefaultValue(const int64_t value)
   SetDefaultValue(std::string(sbuf));
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void EngineOption::SetComboValues(const std::set<int64_t>& values)
 {
   char sbuf[32];

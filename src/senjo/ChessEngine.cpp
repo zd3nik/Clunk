@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "ChessEngine.h"
 #include "Output.h"
@@ -26,9 +26,9 @@
 namespace senjo
 {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // static variables
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool        ChessEngine::_debug = false;
 bool        ChessEngine::_searching = false;
 bool        ChessEngine::_quit = false;
@@ -38,7 +38,7 @@ uint64_t    ChessEngine::_stopTime = 0;
 const char* ChessEngine::_STARTPOS =
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 uint64_t ChessEngine::Perft(const int depth)
 {
   _stop &= ~StopReason::Timeout;
@@ -48,7 +48,17 @@ uint64_t ChessEngine::Perft(const int depth)
   return MyPerft(depth);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+uint64_t ChessEngine::QPerft(const int depth)
+{
+  _stop &= ~StopReason::Timeout;
+  _searching = false;
+  _startTime = Now();
+  _stopTime = 0;
+  return MyQPerft(depth);
+}
+
+//-----------------------------------------------------------------------------
 std::string ChessEngine::Go(const int depth,
                             const int movestogo,
                             const uint64_t movetime,
@@ -85,7 +95,7 @@ std::string ChessEngine::Go(const int depth,
   return bestmove;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void ChessEngine::Timer(void* data)
 {
   try {

@@ -1,6 +1,6 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>, All rights reserved
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #ifndef CLUNK_STATS_H
 #define CLUNK_STATS_H
@@ -19,6 +19,12 @@ struct Stats
   Stats Average() const;
   Stats& operator+=(const Stats& other);
 
+  uint64_t ttGets;        // transposition table gets
+  uint64_t ttHits;        // transposition table hits
+  uint64_t ttMates;       // transposition table checkmates
+  uint64_t ttStales;      // transposition table stalemates
+  uint64_t ptGets;        // pawn transposition table gets
+  uint64_t ptHits;        // pawn transposition table hist
   uint64_t snodes;        // Search() calls
   uint64_t qnodes;        // QSearch() calls
   uint64_t chkExts;       // check extensions

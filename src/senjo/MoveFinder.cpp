@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,14 +18,14 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "MoveFinder.h"
 #include "Output.h"
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool MoveFinder::IsPiece(const char ch)
 {
   switch (toupper(ch)) {
@@ -35,7 +35,7 @@ bool MoveFinder::IsPiece(const char ch)
   return false;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool MoveFinder::LoadFEN(const char* fen)
 {
   ctm = White;
@@ -114,7 +114,7 @@ bool MoveFinder::LoadFEN(const char* fen)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::ToCoordinates(char*& moveStr) const
 {
   std::string move;
@@ -187,19 +187,19 @@ std::string MoveFinder::ToCoordinates(char*& moveStr) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 char MoveFinder::Friend(const char piece) const
 {
   return (ctm == White) ? toupper(piece) : tolower(piece);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 char MoveFinder::Enemy(const char piece) const
 {
   return (ctm == White) ? tolower(piece) : toupper(piece);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::PawnMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('P'), from, to);
@@ -215,7 +215,7 @@ std::string MoveFinder::PawnMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::KnightMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('N'), from, to);
@@ -225,7 +225,7 @@ std::string MoveFinder::KnightMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::BishopMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('B'), from, to);
@@ -235,7 +235,7 @@ std::string MoveFinder::BishopMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::RookMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('R'), from, to);
@@ -245,7 +245,7 @@ std::string MoveFinder::RookMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::QueenMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('Q'), from, to);
@@ -255,7 +255,7 @@ std::string MoveFinder::QueenMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::KingMove(const char* p, Square from, Square to) const
 {
   std::string move = PieceMove(p, Friend('K'), from, to);
@@ -265,7 +265,7 @@ std::string MoveFinder::KingMove(const char* p, Square from, Square to) const
   return move;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 std::string MoveFinder::PieceMove(const char*& p, const char type,
                                   Square& from, Square& to) const
 {
@@ -367,7 +367,7 @@ std::string MoveFinder::PieceMove(const char*& p, const char type,
   return moves.front().ToString();
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddOrigins(const char pc, int x, int y,
                             std::set<Square>& origins) const
 {
@@ -403,9 +403,9 @@ void MoveFinder::AddOrigins(const char pc, int x, int y,
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \return true if move generation along this line should stop
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool MoveFinder::AddMove(ChessMove& move, const Square& dest,
                          const int x, const int y, const char cap,
                          std::list<ChessMove>& moves) const
@@ -435,7 +435,7 @@ bool MoveFinder::AddMove(ChessMove& move, const Square& dest,
   return (dest.IsValid() ? board[destX][destY] : false);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddBishopMoves(const std::set<Square>& origins,
                                 const int x, const int y, const char cap,
                                 std::list<ChessMove>& moves) const
@@ -478,7 +478,7 @@ void MoveFinder::AddBishopMoves(const std::set<Square>& origins,
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddKingMoves(const std::set<Square>& origins,
                               const int x, const int y, const char cap,
                               std::list<ChessMove>& moves) const
@@ -533,7 +533,7 @@ void MoveFinder::AddKingMoves(const std::set<Square>& origins,
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddKnightMoves(const std::set<Square>& origins,
                                 const int x, const int y, const char cap,
                                 std::list<ChessMove>& moves) const
@@ -588,7 +588,7 @@ void MoveFinder::AddKnightMoves(const std::set<Square>& origins,
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddPawnMoves(const std::set<Square>& origins,
                               const int x, const int y, const char cap,
                               std::list<ChessMove>& moves) const
@@ -645,7 +645,7 @@ void MoveFinder::AddPawnMoves(const std::set<Square>& origins,
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void MoveFinder::AddRookMoves(const std::set<Square>& origins,
                               const int x, const int y, const char cap,
                               std::list<ChessMove>& moves) const

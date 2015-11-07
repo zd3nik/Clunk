@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "BackgroundCommand.h"
 #include "MoveFinder.h"
@@ -26,7 +26,7 @@
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool BackgroundCommand::ParseAndExecute(const char* params, Thread& thread)
 {
   if (!engine) {
@@ -50,7 +50,7 @@ bool BackgroundCommand::ParseAndExecute(const char* params, Thread& thread)
   return thread.Start(BackgroundCommand::Run, this);
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void BackgroundCommand::Run(void* data)
 {
   BackgroundCommand* cmd = NULL;
@@ -88,7 +88,7 @@ void BackgroundCommand::Run(void* data)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool RegisterCommandHandle::Parse(const char* params)
 {
   static const std::string argCode  = "code";
@@ -125,7 +125,7 @@ bool RegisterCommandHandle::Parse(const char* params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void RegisterCommandHandle::Execute()
 {
   static const std::string registrationOK = "registration ok";
@@ -146,7 +146,7 @@ void RegisterCommandHandle::Execute()
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool GoCommandHandle::Parse(const char* params)
 {
   static const std::string argBinc        = "binc";
@@ -213,7 +213,7 @@ bool GoCommandHandle::Parse(const char* params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void GoCommandHandle::Execute()
 {
   if (!engine) {
@@ -240,10 +240,10 @@ void GoCommandHandle::Execute()
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 const std::string PerftCommandHandle::_TEST_FILE = "epd/perftsuite.epd";
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool PerftCommandHandle::Parse(const char* params)
 {
   static const std::string argCount = "count";
@@ -286,18 +286,23 @@ bool PerftCommandHandle::Parse(const char* params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void PerftCommandHandle::Execute()
 {
   if (!engine) {
-    Output() << "Engine not set for 'perft' command";
+    Output() << "Engine not set for '" << command << "' command";
     return;
   }
 
   engine->ClearStopFlags();
 
   if (fileName.empty()) {
-    engine->Perft(maxDepth);
+    if (qperft) {
+      engine->QPerft(maxDepth);
+    }
+    else {
+      engine->Perft(maxDepth);
+    }
     return;
   }
 
@@ -326,7 +331,7 @@ void PerftCommandHandle::Execute()
         continue;
       }
 
-      Output() << "Perft line " << line << ' ' << f;
+      Output() << fileName << " line " << line << ' ' << f;
       NormalizeString(f);
       if (!(f = const_cast<char*>(engine->SetPosition(f)))) {
         break;
@@ -361,7 +366,7 @@ void PerftCommandHandle::Execute()
     }
 
     const uint64_t time = (Now() - start);
-    Output() << "Perft "
+    Output() << toupper(command[0]) << (command.c_str() + 1) << " "
              << Rate((leafs / 1000), time) << " KLeafs/sec "
              << Rate((nodes / 1000), time) << " KNodes/sec";
   }
@@ -378,13 +383,13 @@ void PerftCommandHandle::Execute()
   }
 }
 
-//----------------------------------------------------------------------------
-//! \brief Perform perft search, \p params format = 'D<depth> <leafs>'
+//-----------------------------------------------------------------------------
+//! \brief Perform [q]perft search, \p params format = 'D<depth> <leafs>'
 //! \param[in] params The parameter string
 //! \param[out] leafs Incremented by the number of leaf nodes visited
 //! \param[out] nodes Incremented by the number of nodes visited
 //! \return false if leaf nodes does not match expected count
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool PerftCommandHandle::Process(const char* params,
                                  uint64_t& leafs, uint64_t& nodes)
 {
@@ -412,7 +417,7 @@ bool PerftCommandHandle::Process(const char* params,
   }
 
   Output() << "--- " << depth << " => " << expected;
-  uint64_t leaf_count = engine->Perft(depth);
+  uint64_t leaf_count = qperft ? engine->QPerft(depth) : engine->Perft(depth);
   uint64_t node_count = 0;
 
   engine->GetStats(NULL, NULL, &node_count);
@@ -427,10 +432,10 @@ bool PerftCommandHandle::Process(const char* params,
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 const std::string TestCommandHandle::_TEST_FILE = "epd/test.epd";
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool TestCommandHandle::Parse(const char* params)
 {
   static const std::string argCount   = "count";
@@ -479,7 +484,7 @@ bool TestCommandHandle::Parse(const char* params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void TestCommandHandle::Execute()
 {
   if (!engine) {

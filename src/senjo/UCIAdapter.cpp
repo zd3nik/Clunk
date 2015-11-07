@@ -1,4 +1,4 @@
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Copyright (c) 2015 Shawn Chidester <zd3nik@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,7 +18,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 #include "UCIAdapter.h"
 #include "BackgroundCommand.h"
@@ -26,9 +26,10 @@
 
 namespace senjo {
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 namespace token
 {
+  static const std::string BTest("btest");
   static const std::string Debug("debug");
   static const std::string Exit("exit");
   static const std::string Fen("fen");
@@ -43,6 +44,7 @@ namespace token
   static const std::string PonderHit("ponderhit");
   static const std::string Position("position");
   static const std::string Print("print");
+  static const std::string QPerft("qperft");
   static const std::string Quit("quit");
   static const std::string Register("register");
   static const std::string SetOption("setoption");
@@ -54,7 +56,7 @@ namespace token
   static const std::string Value("value");
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool UCIAdapter::IsMove(const char* str)
 {
   return ((str[0] >= 'a') && (str[0] <= 'h') &&
@@ -66,19 +68,19 @@ bool UCIAdapter::IsMove(const char* str)
            (str[4] == 'r') || (str[4] == 'q')));
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 UCIAdapter::UCIAdapter()
   : engine(NULL)
 {
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 UCIAdapter::~UCIAdapter()
 {
   engine = NULL;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool UCIAdapter::Start(ChessEngine& chessEngine)
 {
   if (engine) {
@@ -90,7 +92,7 @@ bool UCIAdapter::Start(ChessEngine& chessEngine)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool UCIAdapter::DoCommand(const char* command)
 {
   if (!engine || !command) {
@@ -151,11 +153,19 @@ bool UCIAdapter::DoCommand(const char* command)
   }
   else if (ParamMatch(token::Perft, command)) {
     StopCommand();
-    PerftCommand(command);
+    PerftCommand(command, false);
+  }
+  else if (ParamMatch(token::QPerft, command)) {
+    StopCommand();
+    PerftCommand(command, true);
   }
   else if (ParamMatch(token::Test, command)) {
     StopCommand();
     TestCommand(command);
+  }
+  else if (ParamMatch(token::BTest, command)) {
+    StopCommand();
+    BTestCommand(command);
   }
   else if (ParamMatch(token::Opts, command)) {
     OptsCommand(command);
@@ -181,9 +191,9 @@ bool UCIAdapter::DoCommand(const char* command)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Output list of available commands (not a UCI command)
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::HelpCommand(const char* /*params*/)
 {
   Output() << engine->GetEngineName() << ' ' << engine->GetEngineVersion()
@@ -205,15 +215,16 @@ void UCIAdapter::HelpCommand(const char* /*params*/)
   Output() << "  " << token::New;
   Output() << "  " << token::Perft;
   Output() << "  " << token::Print;
+  Output() << "  " << token::QPerft;
   Output() << "  " << token::Test;
   Output() << "Also try '<command> help' for help on a specific command";
   Output() << "Or enter move(s) in coordinate notation, e.g. d2d4 g8f6";
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the "fen" command (not a UCI command)
 //! Print the FEN string for the current board position
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::FENCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -228,10 +239,10 @@ void UCIAdapter::FENCommand(const char* params)
   Output() << engine->GetFEN();
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the "print" command (not a UCI command)
 //! Output an ascii representation of the current board position
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::PrintCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -246,10 +257,10 @@ void UCIAdapter::PrintCommand(const char* params)
   engine->PrintBoard();
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the "new" command (not a UCI command)
 //! Clear search data, set position, and apply moves (if any given).
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::NewCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -299,13 +310,13 @@ void UCIAdapter::NewCommand(const char* params)
   }
 }
 
-//----------------------------------------------------------------------------
-//! \brief Do the "perft" command (not a UCI command)
+//-----------------------------------------------------------------------------
+//! \brief Do the "perft" or "qperft" command (not a UCI command)
 //! Execute performance test on current position or a set of test positions
-//----------------------------------------------------------------------------
-void UCIAdapter::PerftCommand(const char* params)
+//-----------------------------------------------------------------------------
+void UCIAdapter::PerftCommand(const char* params, const bool qperft)
 {
-  PerftCommandHandle* handle = new PerftCommandHandle(engine);
+  PerftCommandHandle* handle = new PerftCommandHandle(engine, qperft);
   if (!handle) {
     Output() << "Out of memory";
     return;
@@ -323,10 +334,10 @@ void UCIAdapter::PerftCommand(const char* params)
   handle = NULL;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the "opts" command (not a UCI command)
 //! Output current engine option values
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::OptsCommand(const char* /*params*/)
 {
   std::list<EngineOption> opts = engine->GetOptions();
@@ -355,10 +366,10 @@ void UCIAdapter::OptsCommand(const char* /*params*/)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the "test" command (not a UCI command)
 //! Execute problem solving test on current position or a set of test positions
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::TestCommand(const char* params)
 {
   TestCommandHandle* handle = new TestCommandHandle(engine);
@@ -379,9 +390,26 @@ void UCIAdapter::TestCommand(const char* params)
   handle = NULL;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//! \brief Do the "btest" command (not a UCI command)
+//! Execute blocking test on current position or a set of test positions
+//-----------------------------------------------------------------------------
+void UCIAdapter::BTestCommand(const char* params)
+{
+  TestCommandHandle handle(engine);
+
+  if (!params || !*params || ParamMatch(token::Help, params)) {
+    Output() << "usage: " << handle.Usage();
+    Output() << handle.Description();
+  }
+  else if (handle.Parse(params)) {
+    handle.Execute();
+  }
+}
+
+//-----------------------------------------------------------------------------
 //! \brief Execute the given move(s) on the current position
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::MoveCommand(const char* params)
 {
   if (!engine->IsInitialized()) {
@@ -400,12 +428,12 @@ void UCIAdapter::MoveCommand(const char* params)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "quit" command
 //! UCI specification:
 //!   Quit the program as soon as possible.
 //! \return true if quit requested, otherwise false
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 bool UCIAdapter::QuitCommand(const char *params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -418,7 +446,7 @@ bool UCIAdapter::QuitCommand(const char *params)
   return true;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "debug" command
 //! UCI specification:
 //!   Switch the debug mode of the engine on and off.  In debug mode the engine
@@ -426,7 +454,7 @@ bool UCIAdapter::QuitCommand(const char *params)
 //!   command, to help debugging, e.g. the commands that the engine has
 //!   received etc.  This mode should be switched off by default and this
 //!   command can be sent any time, also when the engine is thinking.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::DebugCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -439,7 +467,7 @@ void UCIAdapter::DebugCommand(const char* params)
   Output() << "debug " << (engine->IsDebugOn() ? "on" : "off");
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "isready" command
 //! UCI specification:
 //!   This is used to synchronize the engine with the GUI.  When the GUI has
@@ -452,7 +480,7 @@ void UCIAdapter::DebugCommand(const char* params)
 //!   always be answered with "readyok" and can be sent also when the engine
 //!   is calculating in which case the engine should also immediately answer
 //!   with "readyok" without stopping the search.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::IsReadyCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -467,12 +495,12 @@ void UCIAdapter::IsReadyCommand(const char* params)
   Output(Output::NoPrefix) << "readyok";
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "stop" command
 //! UCI specification:
 //!   Stop calculating as soon as possible, don't forget the "bestmove" and
 //!   possibly the "ponder" token when finishing the search.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::StopCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -485,7 +513,7 @@ void UCIAdapter::StopCommand(const char* params)
   thread.Join();
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "uci" command
 //! UCI specification:
 //!   Tell engine to use the uci (universal chess interface), this will be sent
@@ -496,7 +524,7 @@ void UCIAdapter::StopCommand(const char* params)
 //!   engine should send "uciok" to acknowledge the uci mode.  If no uciok is
 //!   sent within a certain time period, the engine task will be killed by the
 //!   GUI.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::UCICommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -561,7 +589,7 @@ void UCIAdapter::UCICommand(const char* params)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "ucinewgame" command
 //! UCI specification:
 //!   This is sent to the engine when the next search (started with "position"
@@ -575,7 +603,7 @@ void UCIAdapter::UCICommand(const char* params)
 //!   reaction to "ucinewgame" can take some time the GUI should always send
 //!   "isready" after "ucinewgame" to wait for the engine to finish its
 //!   operation.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::UCINewGameCommand(const char* params)
 {
   if (ParamMatch(token::Help, params)) {
@@ -591,7 +619,7 @@ void UCIAdapter::UCINewGameCommand(const char* params)
   engine->ClearSearchData();
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "position" command
 //! UCI specification:
 //!   Set up the position described in fenstring on the internal board and
@@ -600,7 +628,7 @@ void UCIAdapter::UCINewGameCommand(const char* params)
 //!   Note: no "new" command is needed.  However, if this position is from a
 //!   different game than the last position sent to the engine, the GUI should
 //!   have sent a "ucinewgame" inbetween.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::PositionCommand(const char* params)
 {
   if (!params || !*params || ParamMatch(token::Help, params)) {
@@ -655,7 +683,7 @@ void UCIAdapter::PositionCommand(const char* params)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "setoption" command
 //! UCI specification:
 //!   This is sent to the engine when the user wants to change the internal
@@ -671,7 +699,7 @@ void UCIAdapter::PositionCommand(const char* params)
 //!      "setoption name Style value Risky\n"
 //!      "setoption name Clear Hash\n"
 //!      "setoption name NalimovPath value c:\chess\tb\4;c:\chess\tb\5\n"
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::SetOptionCommand(const char* params)
 {
   if (!params || !*params || ParamMatch(token::Help, params)) {
@@ -713,7 +741,7 @@ void UCIAdapter::SetOptionCommand(const char* params)
   }
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "go" command
 //! UCI specification:
 //! 	Start calculating on the current position set up with the "position"
@@ -757,7 +785,7 @@ void UCIAdapter::SetOptionCommand(const char* params)
 //! 	* infinite
 //! 	  Search until the "stop" command. Do not exit the search without being
 //!     told so in this mode!
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::GoCommand(const char* params)
 {
   GoCommandHandle* handle = new GoCommandHandle(engine);
@@ -778,7 +806,7 @@ void UCIAdapter::GoCommand(const char* params)
   handle = NULL;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "register" command
 //! UCI specification:
 //!   This is the command to try to register an engine or to tell the engine
@@ -794,7 +822,7 @@ void UCIAdapter::GoCommand(const char* params)
 //!   Example:
 //!      "register later"
 //!      "register name Stefan MK code 4359874324"
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::RegisterCommand(const char* params)
 {
   RegisterCommandHandle* handle = new RegisterCommandHandle(engine);
@@ -815,13 +843,13 @@ void UCIAdapter::RegisterCommand(const char* params)
   handle = NULL;
 }
 
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 //! \brief Do the UCI "ponderhit" command
 //! UCI specification:
 //! 	The user has played the expected move. This will be sent if the engine
 //!   was told to ponder on the same move the user has played. The engine
 //!   should continue searching but switch from pondering to normal search.
-//----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 void UCIAdapter::PonderHitCommand(const char* /*params*/)
 {
   engine->PonderHit();
