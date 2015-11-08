@@ -424,7 +424,7 @@ bool PerftCommandHandle::Process(const char* params,
   leafs += leaf_count;
   nodes += node_count;
 
-  if (leaf_count != expected) {
+  if (!qperft && (leaf_count != expected)) {
     Output() << "--- " << leaf_count << " != " << expected;
     return false;
   }

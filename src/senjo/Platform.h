@@ -380,6 +380,11 @@ static inline bool NumberParam(const std::string& name, Number& value,
   if (!ParamMatch(name, params)) {
     return false;
   }
+  int sign = 1;
+  if (params && (*params == '-')) {
+    sign = -1;
+    ++params;
+  }
   if (!params || !*params || !isdigit(*params)) {
     invalid = true;
   }
@@ -392,6 +397,7 @@ static inline bool NumberParam(const std::string& name, Number& value,
       invalid = true;
     }
     else {
+      value *= sign;
       NextWord(params);
     }
   }

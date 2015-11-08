@@ -1563,9 +1563,11 @@ struct Node
         score = ValueOf(cap);
         if (YC(to) == (color ? 0 : 7)) {
           AddMove(PawnCap, from, to, (score + QueenValue),  cap, (color|Queen));
-          AddMove(PawnCap, from, to, (score + RookValue),   cap, (color|Rook));
-          AddMove(PawnCap, from, to, (score + BishopValue), cap, (color|Bishop));
-          AddMove(PawnCap, from, to, (score + KnightValue), cap, (color|Knight));
+          if (!qsearch || !depth) {
+            AddMove(PawnCap, from, to, (score + RookValue),   cap, (color|Rook));
+            AddMove(PawnCap, from, to, (score + BishopValue), cap, (color|Bishop));
+            AddMove(PawnCap, from, to, (score + KnightValue), cap, (color|Knight));
+          }
         }
         else {
           AddMove(PawnCap, from, to, score, cap);
@@ -1580,9 +1582,11 @@ struct Node
       if (_board[to] == _EMPTY) {
         if (YC(to) == (color ? 0 : 7)) {
           AddMove(PawnMove, from, to, QueenValue,  0, (color|Queen));
-          AddMove(PawnMove, from, to, RookValue,   0, (color|Rook));
-          AddMove(PawnMove, from, to, BishopValue, 0, (color|Bishop));
-          AddMove(PawnMove, from, to, KnightValue, 0, (color|Knight));
+          if (!qsearch || !depth) {
+            AddMove(PawnMove, from, to, RookValue,   0, (color|Rook));
+            AddMove(PawnMove, from, to, BishopValue, 0, (color|Bishop));
+            AddMove(PawnMove, from, to, KnightValue, 0, (color|Knight));
+          }
         }
         else {
           if (qsearch) {
@@ -2267,7 +2271,7 @@ struct Node
       }
     }
 
-    if (qsearch && _pcount[!color] && !depth) {
+    if (qsearch && _pcount[color] && !depth) {
       GetSliderChecks<color>();
     }
 
@@ -3073,7 +3077,12 @@ struct Node
     assert(!parent);
     assert(child);
 
-    GenerateMoves<color, false>(depth);
+    if (depth <= 0) {
+      GenerateMoves<color, true>(depth);
+    }
+    else {
+      GenerateMoves<color, false>(depth);
+    }
     std::sort(moves, (moves + moveCount), Move::LexicalCompare);
 
     uint64_t total = 0;
