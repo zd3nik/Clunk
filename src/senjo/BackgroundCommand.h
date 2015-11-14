@@ -171,7 +171,8 @@ protected:
   void Execute();
 
 private:
-  bool Process(const char* params, uint64_t& leafs, uint64_t& nodes);
+  bool Process(const char* params, uint64_t& count,
+               uint64_t& nodes, uint64_t& qnodes);
 
   static const std::string _TEST_FILE;
 

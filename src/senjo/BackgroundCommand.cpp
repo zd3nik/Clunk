@@ -314,8 +314,9 @@ void PerftCommandHandle::Execute()
     }
 
     const uint64_t start = Now();
-    uint64_t leafs = 0;
+    uint64_t pcount = 0;
     uint64_t nodes = 0;
+    uint64_t qnodes = 0;
     bool done = false;
     char fen[16384];
     int positions = 0;
@@ -346,7 +347,7 @@ void PerftCommandHandle::Execute()
 
         // process "D<depth> <leafs>" parameters (e.g. D5 4865609)
         if ((*NextWord(f) == 'D') && isdigit(f[1])) {
-          if (!Process(f, leafs, nodes)) {
+          if (!Process(f, pcount, nodes, qnodes)) {
             done = true;
             break;
           }
@@ -366,9 +367,18 @@ void PerftCommandHandle::Execute()
     }
 
     const uint64_t time = (Now() - start);
-    Output() << toupper(command[0]) << (command.c_str() + 1) << " "
-             << Rate((leafs / 1000), time) << " KLeafs/sec "
-             << Rate((nodes / 1000), time) << " KNodes/sec";
+    if (qperft) {
+      Output() << "Total QPerft " << pcount << ' '
+               << Rate((pcount / 1000), time) << " KNodes/sec";
+      Output() << "Total Snodes " << (nodes - qnodes) << ", Qnodes " << qnodes
+               << " (" << Percent(qnodes, pcount) << "%)";
+    }
+    else {
+      Output() << "Total Perft " << pcount << ' '
+               << Rate((pcount / 1000), time) << " KLeafs/sec";
+      Output() << "Total Nodes " << nodes << ' '
+               << Rate((nodes / 1000), time) << " KNodes/sec";
+    }
   }
   catch (const std::exception& e) {
     Output() << "ERROR: " << e.what();
@@ -386,12 +396,13 @@ void PerftCommandHandle::Execute()
 //-----------------------------------------------------------------------------
 //! \brief Perform [q]perft search, \p params format = 'D<depth> <leafs>'
 //! \param[in] params The parameter string
-//! \param[out] leafs Incremented by the number of leaf nodes visited
+//! \param[out] count Incremented by the number of perft nodes visited
 //! \param[out] nodes Incremented by the number of nodes visited
-//! \return false if leaf nodes does not match expected count
+//! \param[out] qnodes Incremented by the number of quiescence nodes visited
+//! \return false if count does not match expected count
 //-----------------------------------------------------------------------------
-bool PerftCommandHandle::Process(const char* params,
-                                 uint64_t& leafs, uint64_t& nodes)
+bool PerftCommandHandle::Process(const char* params, uint64_t& count,
+                                 uint64_t& nodes, uint64_t& qnodes)
 {
   const char* p = (params + 1);
   int depth = 0;
@@ -417,15 +428,17 @@ bool PerftCommandHandle::Process(const char* params,
   }
 
   Output() << "--- " << depth << " => " << expected;
-  uint64_t leaf_count = qperft ? engine->QPerft(depth) : engine->Perft(depth);
+  uint64_t perft_count = qperft ? engine->QPerft(depth) : engine->Perft(depth);
   uint64_t node_count = 0;
+  uint64_t qnode_count = 0;
 
-  engine->GetStats(NULL, NULL, &node_count);
-  leafs += leaf_count;
+  engine->GetStats(NULL, NULL, &node_count, &qnode_count);
+  count += perft_count;
   nodes += node_count;
+  qnodes += qnode_count;
 
-  if (!qperft && (leaf_count != expected)) {
-    Output() << "--- " << leaf_count << " != " << expected;
+  if (!qperft && (perft_count != expected)) {
+    Output() << "--- " << perft_count << " != " << expected;
     return false;
   }
 

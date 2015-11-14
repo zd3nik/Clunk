@@ -1670,7 +1670,7 @@ struct Node
         }
       }
       else if (COLOR(cap) != color) {
-        score = (_SQR[to] - _SQR[from] + ValueOf(cap) - (8 * KnightMove));
+        score = (ValueOf(cap) + _SQR[to] - _SQR[from] - (8 * KnightMove));
         AddMove(KnightMove, from, to, score, cap);
       }
     }
@@ -1696,7 +1696,7 @@ struct Node
           const int cap = _board[to]->type;
           assert(cap || (_board[to] == _EMPTY));
           if ((cap != 0) & (COLOR(cap) != color)) {
-            score = (ValueOf(cap) - (8 * type));
+            score = (ValueOf(cap) - Distance(from, to) - (8 * type));
             AddMove(type, from, to, score, cap);
           }
         }
@@ -1733,7 +1733,7 @@ struct Node
           }
           else {
             if (COLOR(cap) != color) {
-              score = (ValueOf(cap) - (8 * type));
+              score = (ValueOf(cap) - Distance(from, to) - (8 * type));
               AddMove(type, from, to, score, cap);
             }
             break;
@@ -1906,7 +1906,7 @@ struct Node
         assert(cap || (_board[to] == _EMPTY));
         if (cap) {
           if ((COLOR(cap) != color) && !AttackedBy<!color>(to)) {
-            score = (ValueOf(cap) - 80);
+            score = (ValueOf(cap) + _SQR[to] - _SQR[from] - 80);
             AddMove(KingMove, from, to, score, cap);
           }
         }
@@ -1944,7 +1944,7 @@ struct Node
           }
         }
         else if (COLOR(cap) != color) {
-          score = (ValueOf(cap) - 80);
+          score = (ValueOf(cap) + _SQR[to] - _SQR[from] - 80);
           AddMove(KingMove, from, to, score, cap);
         }
       }
@@ -1990,7 +1990,8 @@ struct Node
           AddMove(KingMove, from, to, score);
         }
         else if (COLOR(cap) != color) {
-          AddMove(KingMove, from, to, ValueOf(cap), cap);
+          const int score = (ValueOf(cap) + _SQR[to] - _SQR[from]);
+          AddMove(KingMove, from, to, score, cap);
         }
       }
     }
@@ -2117,7 +2118,7 @@ struct Node
           if ((_board[from]->type == (color|Knight)) &&
               !GetPinDir(color, from))
           {
-            score = (_SQR[to] - _SQR[from] + ValueOf(cap) - (8 * KnightMove));
+            score = (ValueOf(cap) + _SQR[to] - _SQR[from] - (8 * KnightMove));
             AddMove(KnightMove, from, to, score, cap);
           }
         }
@@ -2136,7 +2137,7 @@ struct Node
             if (COLOR(type) == color) {
               const int pinDir = GetPinDir(color, from);
               if (!pinDir || (abs(Direction(from, to)) == pinDir)) {
-                score = (ValueOf(cap) - (8 * (type & ~1)));
+                score = (ValueOf(cap) - Distance(from, to) - (8 * (type & ~1)));
                 AddMove(static_cast<MoveType>(type & ~1), from, to, score, cap);
               }
             }
@@ -2174,7 +2175,7 @@ struct Node
         AddMove(KingMove, king, to, score);
       }
       else if (COLOR(cap) != color) {
-        score = (ValueOf(cap) - 80);
+        score = (ValueOf(cap) + _SQR[to] - _SQR[king] - 80);
         AddMove(KingMove, king, to, score, cap);
       }
     }
@@ -2999,6 +3000,7 @@ struct Node
   template<Color color>
   uint64_t PerftSearch(const int depth) {
     GenerateMoves<color, false>(depth);
+    _stats.snodes += moveCount;
     if (!child || (depth <= 1)) {
       return moveCount;
     }
@@ -3022,6 +3024,8 @@ struct Node
     assert(VerifyAttacks(true));
 
     GenerateMoves<color, false>(depth);
+    _stats.snodes += moveCount;
+
     std::sort(moves, (moves + moveCount), Move::LexicalCompare);
 
     uint64_t total = 0;
@@ -3052,9 +3056,11 @@ struct Node
   uint64_t QPerftSearch(const int depth) {
     if (depth <= 0) {
       GenerateMoves<color, true>(depth);
+      _stats.qnodes += moveCount;
     }
     else {
       GenerateMoves<color, false>(depth);
+      _stats.snodes += moveCount;
     }
     if ((!child) | (!moveCount) | (depth < 0)) {
       return (moveCount + 1);
@@ -3079,9 +3085,11 @@ struct Node
 
     if (depth <= 0) {
       GenerateMoves<color, true>(depth);
+      _stats.qnodes += moveCount;
     }
     else {
       GenerateMoves<color, false>(depth);
+      _stats.snodes += moveCount;
     }
     std::sort(moves, (moves + moveCount), Move::LexicalCompare);
 
@@ -4985,6 +4993,9 @@ uint64_t Clunk::MyPerft(const int depth) {
   const uint64_t msecs = (senjo::Now() - _startTime);
   senjo::Output() << "Perft " << count << ' '
                   << senjo::Rate((count / 1000), msecs) << " KLeafs/sec";
+  senjo::Output() << "Nodes " << _stats.snodes << ' '
+                  << senjo::Rate((_stats.snodes / 1000), msecs)
+                  << " KNodes/sec";
 
   return count;
 }
@@ -5008,8 +5019,11 @@ uint64_t Clunk::MyQPerft(const int depth) {
                                        : root->QPerftSearchRoot<Black>(d);
 
   const uint64_t msecs = (senjo::Now() - _startTime);
+  assert(count == (_stats.snodes + _stats.qnodes));
   senjo::Output() << "Qperft " << count << ' '
                   << senjo::Rate((count / 1000), msecs) << " KNodes/sec";
+  senjo::Output() << "Snodes " << _stats.snodes << ", Qnodes " << _stats.qnodes
+                  << " (" << senjo::Percent(_stats.qnodes, count) << "%)";
 
   return count;
 }
