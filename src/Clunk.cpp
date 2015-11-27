@@ -11,9 +11,35 @@ namespace clunk
 {
 
 //-----------------------------------------------------------------------------
+const char* NOT_INITIALIZED = "Engine not initialized";
+
+//-----------------------------------------------------------------------------
 struct Piece {
   uint8_t type;
   uint8_t sqr;
+};
+
+//-----------------------------------------------------------------------------
+enum ScoreType {
+  CanWin         = 0,
+  Passer         = 14,
+  Material       = 16,
+  Total          = 18,
+  ScoreTypeCount = 20
+};
+
+//-----------------------------------------------------------------------------
+const char* _SCORE[ScoreTypeCount] = {
+  "Can Win     ", "Can Win     ",
+  "Pawn        ", "Pawn        ",
+  "Knight      ", "Knight      ",
+  "Bishop      ", "Bishop      ",
+  "Rook        ", "Rook        ",
+  "Queen       ", "Queen       ",
+  "King        ", "King        ",
+  "Passer      ", "Passer      ",
+  "Material    ", "Material    ",
+  "Total       ", "Total       "
 };
 
 //-----------------------------------------------------------------------------
@@ -28,6 +54,7 @@ const int _VALUE_OF[12] = {
 
 //----------------------------------------------------------------------------
 const int _PASSER_BONUS[8] = { 0, 4, 8, 16, 32, 56, 88, 0 };
+const int _CAN_WIN_BONUS   = 50;
 
 //----------------------------------------------------------------------------
 const int _PAWN_SQR[128] = {
@@ -124,6 +151,7 @@ int         _qsearchDelta[MaxPlies] = {0};
 int         _razorDelta[5] = {0};
 int         _futilityDelta[5] = {0};
 uint64_t    _startTime = 0;
+bool        _debug = false;
 char        _hist[0x1000] = {0};
 std::string _currmove;
 Stats       _stats;
@@ -1180,9 +1208,16 @@ struct Node
   uint64_t positionKey;
   Move lastMove;
   int checks;
-  int standPat;
+
+  //---------------------------------------------------------------------------
+  // updated by Evaluate()
+  //---------------------------------------------------------------------------
+#ifndef NDEBUG
+  int scoreType[ScoreTypeCount];
+#endif
   int atkCount[2];
   int atkScore[2];
+  int standPat;
 
   //---------------------------------------------------------------------------
   // updated by move generation and search
@@ -1262,6 +1297,8 @@ struct Node
     if (do_eval) {
       Evaluate();
     }
+    const int mat = (_material[White] - _material[Black]);
+    const int eval = (COLOR(state) ? -standPat : standPat);
     senjo::Output out(senjo::Output::NoPrefix);
     out << '\n';
     for (int y = 7; y >= 0; --y) {
@@ -1294,26 +1331,47 @@ struct Node
         out << "  Reversible Moves  : " << rcount;
         break;
       case 4:
-        out << "  Material Balance  : " << (_material[White] - _material[Black]);
-        break;
-      case 3:
-        out << "  Evaluation        : " << (COLOR(state) ? -standPat : standPat);
-        break;
-      case 2:
         out << "  Castling Rights   : ";
         if (state & WhiteShort) out << 'K';
         if (state & WhiteLong)  out << 'Q';
         if (state & BlackShort) out << 'k';
         if (state & BlackLong)  out << 'q';
         break;
-      case 1:
+      case 3:
         if (ep != None) {
           out << "  En Passant Square : " << senjo::Square(ep).ToString();
         }
         break;
+      case 2:
+        out << "  Material Balance  : " << mat;
+        break;
+      case 1:
+        out << "  Evaluation        : " << eval;
+        break;
+      case 0:
+        out << "  Compensation      : " << (eval - mat);
+        break;
       }
       out << '\n';
     }
+
+#ifndef NDEBUG
+    if (_debug && do_eval) {
+      out << '\n';
+      out << "            \tWhite\tBlack\tSum\n";
+      for (int type = 0; type < ScoreTypeCount; type += 2) {
+        int w = scoreType[White|type];
+        int b = scoreType[Black|type];
+        int sum = (w - b);
+        out << _SCORE[type] << '\t' << w << '\t' << b << '\t' << sum << '\n';
+      }
+      int w = (scoreType[White|Total] - scoreType[White|Material]);
+      int b = (scoreType[Black|Total] - scoreType[Black|Material]);
+      int adjust = (eval - (scoreType[White|Total] - scoreType[Black|Total]));
+      out << "Compensation\t" << w << '\t' << b << '\t' << (w - b) << '\n';
+      out << "Draw Adjustment\t" << adjust << '\n';
+    }
+#endif
   }
 
   //---------------------------------------------------------------------------
@@ -3218,6 +3276,12 @@ struct Node
 
     assert(entry->score[color] == 0);
     entry->score[color] = score;
+
+#ifndef NDEBUG
+    scoreType[color|Pawn] = score;
+    scoreType[color|Total] += score;
+#endif
+
     return score;
   }
 
@@ -3337,6 +3401,11 @@ struct Node
       score += bonus;
     }
 
+#ifndef NDEBUG
+    scoreType[color|Passer] = score;
+    scoreType[color|Total] += score;
+#endif
+
     return score;
   }
 
@@ -3350,6 +3419,13 @@ struct Node
     // redundant knights are worth slightly less
     if (_pcount[color|Knight] > 1) {
       score -= (16 * (_pcount[color|Knight] - 1));
+    }
+
+    // loner knight worth less than a pawn
+    else if ((_pcount[color|Knight] == 1) &
+             !(_pcount[color] + _pcount[color|Pawn]))
+    {
+      score += ((PawnValue / 2) - KnightValue);
     }
 
     for (int i = _pcount[color|Knight]; i--; ) {
@@ -3366,16 +3442,12 @@ struct Node
         // bonus if can't be menaced by enemy pawns
         score += (4 * !(fileInfo[!color][x] | fileInfo[!color][x + 2]));
 
-        // bonus if blocking a backward pawn (adds to previous bonus)
+        // bonus if blocking a backward pawn
         score += (4 * (color ? (y < 5) : (y > 2)) *
                   (fileInfo[!color][x + 1] == (y + (color ? South : North))));
       }
 
-      // keep knights close to the action
-      // assuming the action is centered around the kings
-      score += (8 - (Distance(sqr, _KING[White]->sqr) +
-                     Distance(sqr, _KING[Black]->sqr)));
-
+      // mobility bonus/penalty
       int mob = 0;
       for (uint64_t mvs = _knightMoves[sqr]; mvs; mvs >>= 8) {
         if (mvs & 0xFF) {
@@ -3387,7 +3459,16 @@ struct Node
       }
       assert((mob >= 0) & (mob <= 8));
       score += (mob - (16 * !mob) - (4 * (mob == 1)));
+
+      // keep knights close to the kings
+      score += (8 - (Distance(sqr, _KING[White]->sqr) +
+                     Distance(sqr, _KING[Black]->sqr)));
     }
+
+#ifndef NDEBUG
+    scoreType[color|Knight] = score;
+    scoreType[color|Total] += score;
+#endif
 
     return score;
   }
@@ -3398,6 +3479,19 @@ struct Node
     assert(fileInfo);
     assert((BishopOffset + 10) == BlackBishopOffset);
     int score = 0;
+
+    // bonus for having bishop pair (increases as pawns come off the board)
+    // NOTE: this does n't verify they are on opposite color squares!
+    if (_pcount[color|Bishop] > 1) {
+      score += (48 - ((5 * (_pcount[White|Pawn] + _pcount[Black|Pawn])) / 3));
+    }
+
+    // loner bishop worth less than a pawn
+    else if ((_pcount[color|Bishop] == 1) &
+             ((_pcount[color]+_pcount[color|Pawn]+_pcount[color|Knight]) == 1))
+    {
+      score += ((PawnValue / 2) - BishopValue);
+    }
 
     for (int i = _pcount[color|Bishop]; i--; ) {
       assert(i >= 0);
@@ -3418,14 +3512,7 @@ struct Node
                   (fileInfo[!color][x + 1] == (y + (color ? South : North))));
       }
 
-      // bonus for being inline with enemy king
-      const int dir = Direction(sqr, _KING[!color]->sqr);
-      score += (4 * IS_DIAG(dir));
-
-      // stay close to fiendly king during endgame
-      score += static_cast<int>(
-            EndGame(color) * (8 - Distance(sqr, _KING[color]->sqr)));
-
+      // mobility bonus/penalty
       int mob = 0;
       for (uint64_t mvs = _atk[sqr + 8]; mvs; mvs >>= 8) {
         if (mvs & 0xFF) {
@@ -3438,7 +3525,20 @@ struct Node
       }
       assert((mob >= 0) & (mob <= 13));
       score += ((mob / 2) - (16 * !mob) - (4 * (mob == 1)));
+
+      // bonus for being inline with enemy king
+      const int dir = Direction(sqr, _KING[!color]->sqr);
+      score += (4 * IS_DIAG(dir));
+
+      // stay close to fiendly king during endgame
+      score += static_cast<int>(
+            EndGame(color) * (8 - Distance(sqr, _KING[color]->sqr)));
     }
+
+#ifndef NDEBUG
+    scoreType[color|Bishop] = score;
+    scoreType[color|Total] += score;
+#endif
 
     return score;
   }
@@ -3470,10 +3570,6 @@ struct Node
       }
       assert((mob >= 0) & (mob <= 14));
 
-      // stay close to fiendly king during endgame
-      score += static_cast<int>(
-            EndGame(color) * (8 - Distance(sqr, _KING[color]->sqr)));
-
       const int x = XC(sqr);
       const int y = YC(sqr);
       const uint8_t pawn = (fileInfo[color][x + 1] & 7);
@@ -3502,11 +3598,14 @@ struct Node
       {
         const int kx = XC(_KING[color]->sqr);
         if (kx >= 4) {
-          score -= (16 * (x >= kx));
+          score -= (20 * (x >= kx));
         }
         else {
-          score -= (16 * (x <= kx));
+          score -= (20 * (x <= kx));
         }
+
+        // extra penalty if trapped
+        score -= ((16 * !mob) + (4 * (mob == 1)));
       }
 
       // partial mobility bonus
@@ -3515,7 +3614,16 @@ struct Node
         score += ((mob / 2) +
                   (4 * !!(fileInfo[color][x + 1] & PawnEntry::Backward)));
       }
+
+      // stay close to fiendly king during endgame
+      score += static_cast<int>(
+            EndGame(color) * (8 - Distance(sqr, _KING[color]->sqr)));
     }
+
+#ifndef NDEBUG
+    scoreType[color|Rook] = score;
+    scoreType[color|Total] += score;
+#endif
 
     return score;
   }
@@ -3534,9 +3642,7 @@ struct Node
       assert(_board[sqr]->type == (color|Queen));
       assert(_board[sqr]->sqr == sqr);
 
-      // bonus for being close to enemy king
-      score += (8 - Distance(sqr, _KING[!color]->sqr));
-
+      // mobility bonus/penalty
       int mob = 0;
       for (uint64_t mvs = _atk[sqr + 8]; mvs; mvs >>= 8) {
         if (mvs & 0xFF) {
@@ -3547,10 +3653,17 @@ struct Node
                                        (COLOR(_board[to]->type) == color)));
         }
       }
-
       assert((mob >= 0) & (mob <= 27));
       score += ((mob / 4) - (16 * !mob) - (4 * (mob == 1)));
+
+      // bonus for being close to enemy king
+      score += (16 - (2 * Distance(sqr, _KING[!color]->sqr)));
     }
+
+#ifndef NDEBUG
+    scoreType[color|Queen] = score;
+    scoreType[color|Total] += score;
+#endif
 
     return score;
   }
@@ -3593,15 +3706,15 @@ struct Node
     const uint8_t* you = fileInfo[!color];
     const int x = XC(sqr);
     const int y = YC(sqr);
-    if (x > 4) {
-      FileEval<color>(mg, y, (me[6] & 7), (you[6] & 7));
-      FileEval<color>(mg, y, (me[7] & 7), (you[7] & 7));
-      FileEval<color>(mg, y, (me[8] & 7), (you[8] & 7));
-    }
-    else if (x < 3) {
+    if (x < 2) {
       FileEval<color>(mg, y, (me[1] & 7), (you[1] & 7));
       FileEval<color>(mg, y, (me[2] & 7), (you[2] & 7));
       FileEval<color>(mg, y, (me[3] & 7), (you[3] & 7));
+    }
+    else if (x > 5) {
+      FileEval<color>(mg, y, (me[6] & 7), (you[6] & 7));
+      FileEval<color>(mg, y, (me[7] & 7), (you[7] & 7));
+      FileEval<color>(mg, y, (me[8] & 7), (you[8] & 7));
     }
     else {
       FileEval<color>(mg, y, (me[3] & 7), (you[3] & 7));
@@ -3618,7 +3731,14 @@ struct Node
     // TODO endgame scoring
     //      keep close to pawns, especially passers (friend or foe)
 
-    return static_cast<int>((EndGame(color) * eg) + (MidGame(color) * mg));
+    mg = static_cast<int>((EndGame(color) * eg) + (MidGame(color) * mg));
+
+#ifndef NDEBUG
+    scoreType[color|King] = mg;
+    scoreType[color|Total] += mg;
+#endif
+
+    return mg;
   }
 
   //---------------------------------------------------------------------------
@@ -3666,6 +3786,16 @@ struct Node
                               _pcount[Black|Rook] |
                               _pcount[Black|Queen]);
 
+#ifndef NDEBUG
+    memset(scoreType, 0, sizeof(scoreType));
+    scoreType[White|CanWin]   = (whiteCanWin * _CAN_WIN_BONUS);
+    scoreType[Black|CanWin]   = (blackCanWin * _CAN_WIN_BONUS);
+    scoreType[White|Material] = _material[White];
+    scoreType[Black|Material] = _material[Black];
+    scoreType[White|Total]    = (_material[White] + scoreType[White|CanWin]);
+    scoreType[Black|Total]    = (_material[Black] + scoreType[Black|CanWin]);
+#endif
+
     if (!(whiteCanWin | blackCanWin)) {
       state |= Draw;
       standPat = _drawScore[COLOR(state)];
@@ -3678,7 +3808,8 @@ struct Node
     atkScore[Black] = 0;
 
     int score = (_material[White] - _material[Black] +
-                 (whiteCanWin * 50) - (blackCanWin * 50));
+                 (whiteCanWin * _CAN_WIN_BONUS) -
+                 (blackCanWin * _CAN_WIN_BONUS));
 
     PawnEntry* entry = _pawnTT.Get(pawnKey);
     assert(entry);
@@ -4439,8 +4570,7 @@ void InitNodes() {
 
 //-----------------------------------------------------------------------------
 Clunk::Clunk()
-  : root(_node),
-    initialized(false)
+  : root(NULL)
 {
 }
 
@@ -4450,7 +4580,7 @@ Clunk::~Clunk() {
 
 //-----------------------------------------------------------------------------
 bool Clunk::IsInitialized() const {
-  return initialized;
+  return (root != NULL);
 }
 
 //-----------------------------------------------------------------------------
@@ -4462,12 +4592,20 @@ bool Clunk::SetEngineOption(const std::string& /*optionName*/,
 
 //-----------------------------------------------------------------------------
 bool Clunk::WhiteToMove() const {
+  if (!root) {
+    senjo::Output() << NOT_INITIALIZED;
+    return true;
+  }
   return !COLOR(root->state);
 }
 
 //-----------------------------------------------------------------------------
 const char* Clunk::MakeMove(const char* str) {
-  if (!initialized || !str ||
+  if (!root) {
+    senjo::Output() << NOT_INITIALIZED;
+    return NULL;
+  }
+  if (!str ||
       !IS_X(str[0]) || !IS_Y(str[1]) ||
       !IS_X(str[2]) || !IS_Y(str[3]))
   {
@@ -4902,10 +5040,12 @@ void Clunk::Initialize() {
   InitNodes();
   InitDistDir();
   InitMoveMaps();
+
   _tt.Resize(512); // TODO make configurable
   _pawnTT.Resize(2); // TODO make configurable
+
+  root = _node;
   SetPosition(_STARTPOS);
-  initialized = true;
 }
 
 //-----------------------------------------------------------------------------
@@ -4914,7 +5054,12 @@ void Clunk::PonderHit() {
 
 //-----------------------------------------------------------------------------
 void Clunk::PrintBoard() const {
-  root->PrintBoard(true);
+  if (root) {
+    root->PrintBoard(true);
+  }
+  else {
+    senjo::Output() << NOT_INITIALIZED;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -4926,6 +5071,12 @@ void Clunk::Quit() {
 //-----------------------------------------------------------------------------
 void Clunk::ResetStatsTotals() {
   _totalStats.Clear();
+}
+
+//-----------------------------------------------------------------------------
+void Clunk::SetDebug(const bool flag) {
+  ChessEngine::SetDebug(flag);
+  clunk::_debug = flag;
 }
 
 //-----------------------------------------------------------------------------
@@ -4974,8 +5125,8 @@ void Clunk::GetStats(int* depth,
 
 //-----------------------------------------------------------------------------
 uint64_t Clunk::MyPerft(const int depth) {
-  if (!initialized) {
-    senjo::Output() << "Engine not initialized";
+  if (!root) {
+    senjo::Output() << NOT_INITIALIZED;
     return 0;
   }
 
@@ -5002,8 +5153,8 @@ uint64_t Clunk::MyPerft(const int depth) {
 
 //-----------------------------------------------------------------------------
 uint64_t Clunk::MyQPerft(const int depth) {
-  if (!initialized) {
-    senjo::Output() << "Engine not initialized";
+  if (!root) {
+    senjo::Output() << NOT_INITIALIZED;
     return 0;
   }
 
@@ -5036,8 +5187,8 @@ std::string Clunk::MyGo(const int depth,
                         const uint64_t /*btime*/, const uint64_t /*binc*/,
                         std::string* /*ponder*/)
 {
-  if (!initialized) {
-    senjo::Output() << "Engine not initialized";
+  if (!root) {
+    senjo::Output() << NOT_INITIALIZED;
     return std::string();
   }
 

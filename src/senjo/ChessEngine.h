@@ -285,37 +285,37 @@ public:
   //! \brief Set the engine's debug mode on or off
   //! \param[in] flag true to enable debug mode, false to disable debug mode
   //--------------------------------------------------------------------------
-  void SetDebug(const bool flag) { _debug = flag; }
+  virtual void SetDebug(const bool flag) { _debug = flag; }
 
   //--------------------------------------------------------------------------
   //! \brief Is debug mode enabled?
   //! \return true if debug mode is enabled
   //--------------------------------------------------------------------------
-  bool IsDebugOn() const { return _debug; }
+  virtual bool IsDebugOn() const { return _debug; }
 
   //--------------------------------------------------------------------------
   //! \brief Is the engine currently executing the Go() method?
   //! It is not recommended to set this to true while Perft() is executing.
   //! \return true if the engine is searching
   //--------------------------------------------------------------------------
-  bool IsSearching() const { return _searching; }
+  virtual bool IsSearching() const { return _searching; }
 
   //--------------------------------------------------------------------------
   //! \brief Get the millisecond timestamp of when Go() was started
   //! \return 0 if not searching
   //--------------------------------------------------------------------------
-  uint64_t GetStartTime() const { return _startTime; }
+  virtual uint64_t GetStartTime() const { return _startTime; }
 
   //--------------------------------------------------------------------------
   //! \brief Get millisecond timestamp when the current search should timeout
   //! \return 0 if not searching or the current search should not timeout
   //--------------------------------------------------------------------------
-  uint64_t GetStopTime() const { return _stopTime; }
+  virtual uint64_t GetStopTime() const { return _stopTime; }
 
   //--------------------------------------------------------------------------
   //! \brief Clear all stop flags
   //--------------------------------------------------------------------------
-  void ClearStopFlags() { _stop = 0; }
+  virtual void ClearStopFlags() { _stop = 0; }
 
   //--------------------------------------------------------------------------
   //! \brief Tell the engine to stop searching
@@ -328,13 +328,13 @@ public:
   //! \brief Was the last search stopped by user request?
   //! \return true if Stop() was called with reason set to UserRequest
   //--------------------------------------------------------------------------
-  bool StopRequested() const { return (_stop & StopReason::FullStop); }
+  virtual bool StopRequested() const { return (_stop & StopReason::FullStop); }
 
   //--------------------------------------------------------------------------
   //! \brief Was the last search stopped because of timeout?
   //! \return true if Stop() was called with reason set to Timeout
   //--------------------------------------------------------------------------
-  uint64_t TimeoutOccurred() const { return (_stop & StopReason::Timeout); }
+  virtual uint64_t TimeoutOccurred() const { return (_stop & StopReason::Timeout); }
 
   //--------------------------------------------------------------------------
   //! \brief Reset statistical counter totals
@@ -351,7 +351,7 @@ public:
   //--------------------------------------------------------------------------
   virtual void Quit() {
     _quit = true;
-    _stop = FullStop;
+    Stop(FullStop);
     if (UseTimer()) {
       timerThread.Join();
     }

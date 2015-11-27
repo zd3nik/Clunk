@@ -38,6 +38,7 @@ public:
   void PrintBoard() const;
   void Quit();
   void ResetStatsTotals();
+  void SetDebug(const bool flag);
   void ShowStatsTotals() const;
   void Stop(const StopReason);
   void GetStats(int* depth,
@@ -61,7 +62,6 @@ protected:
 
 private:
   Node* root;
-  bool initialized;
 };
 
 } // namespace clunk
