@@ -103,6 +103,21 @@ enum StateBits {
 };
 
 //-----------------------------------------------------------------------------
+enum BitMask {
+  OneBit      = 0x1,
+  TwoBits     = 0x3,
+  ThreeBits   = 0x7,
+  FourBits    = 0xF,
+  FiveBits    = 0x1F,
+  SixBits     = 0x3F,
+  SevenBits   = 0x7F,
+  EightBits   = 0xFF,
+  TenBits     = 0x3FF,
+  TwelveBits  = 0xFFF,
+  SixteenBits = 0xFFFF
+};
+
+//-----------------------------------------------------------------------------
 enum {
   WhiteKingOffset   = 2,
   BlackKingOffset   = 3,

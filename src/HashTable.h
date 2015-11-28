@@ -68,7 +68,6 @@ struct HashEntry
   int Score(const int ply) const {
     // get mate-in-N scores relative to root
     assert((ply >= 0) & (ply < MaxPlies));
-    assert(abs(score) < Infinity);
     if (score > MateScore) {
       assert((score - ply) > MateScore);
       assert((score - ply) < Infinity);
@@ -79,12 +78,14 @@ struct HashEntry
       assert((score + ply) > -Infinity);
       return (score + ply);
     }
+    assert(abs(score) < Infinity);
     return score;
   }
 
   //---------------------------------------------------------------------------
   void Set(const uint64_t entryKey,
            const Move& bestmove,
+           const int eval,
            const int ply,
            const int draft,
            const int primaryFlag,
@@ -92,7 +93,7 @@ struct HashEntry
   {
     assert(entryKey);
     assert(bestmove.IsValid());
-    assert(abs(bestmove.GetScore()) < Infinity);
+    assert(abs(eval) < Infinity);
     assert((ply >= 0) & (ply < MaxPlies));
     assert((draft >= 0) && (draft < 256));
     assert((primaryFlag == HashEntry::LowerBound) ||
@@ -106,14 +107,14 @@ struct HashEntry
     flags    = static_cast<uint8_t>(primaryFlag | otherFlags);
 
     // store mate-in-N scores relative to position
-    if (bestmove.GetScore() > MateScore) {
-      score  = static_cast<int16_t>(bestmove.GetScore() + ply);
+    if (eval > MateScore) {
+      score  = static_cast<int16_t>(eval + ply);
     }
-    else if (bestmove.GetScore() < -MateScore) {
-      score  = static_cast<int16_t>(bestmove.GetScore() - ply);
+    else if (eval < -MateScore) {
+      score  = static_cast<int16_t>(eval - ply);
     }
     else {
-      score  = static_cast<int16_t>(bestmove.GetScore());
+      score  = static_cast<int16_t>(eval);
     }
   }
 
@@ -138,11 +139,12 @@ struct HashEntry
   }
 
 private:
-  uint64_t key;
-  uint32_t moveBits;
-  uint8_t  depth;
-  uint8_t  flags;
-  int16_t  score;
+  uint64_t key;      //  8 bytes
+  uint32_t moveBits; //  4 bytes
+  uint8_t  depth;    //  1 byte
+  uint8_t  flags;    //  1 byte
+  int16_t  score;    //  2 bytes
+                     // 16 bytes
 };
 
 //-----------------------------------------------------------------------------
@@ -156,9 +158,10 @@ struct PawnEntry
     Potential = 0x80
   };
 
-  uint64_t positionKey;
-  uint8_t fileInfo[2][10];
-  int16_t score[2];
+  uint64_t positionKey;    //  8 bytes
+  uint8_t fileInfo[2][10]; // 20 bytes
+  int16_t score[2];        //  4 bytes
+                           // 32 bytes
 };
 
 //-----------------------------------------------------------------------------
@@ -215,7 +218,7 @@ public:
     assert(highBit >= 2);
 
     // highBit is the number of entries we'll store
-    // highBit - 1 is the bit mask we use to map position keys to a table slot
+    // highBit - 1 is the bit mask we use to map keys to a table slot
     // example highBit in binary: 100000000
     //                      mask: 011111111
     keyMask = (highBit - 1);

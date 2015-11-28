@@ -51,9 +51,9 @@ public:
 
   //---------------------------------------------------------------------------
   Move& operator=(const Move& other) {
-    assert(abs(other.score) <= Infinity);
     bits = other.bits;
     score = other.score;
+    assert(abs(score) <= Infinity);
     assert(!bits || IsValid());
     return *this;
   }
@@ -66,9 +66,9 @@ public:
 
   //---------------------------------------------------------------------------
   void Init(const uint32_t bits, const int score) {
-    assert(abs(score) <= Infinity);
     this->bits = bits;
     this->score = static_cast<int32_t>(score);
+    assert(abs(score) <= Infinity);
     assert(!bits || IsValid());
   }
 
@@ -102,12 +102,20 @@ public:
   }
 
   //---------------------------------------------------------------------------
-  int GetScore() const {
-    return score;
+  void SetScore(const int value) {
+    assert(abs(value) <= Infinity);
+    score = value;
   }
 
   //---------------------------------------------------------------------------
-  int& Score() {
+  void IncScore(const int value) {
+    assert(abs(value) <= Infinity);
+    score += static_cast<int32_t>(value);
+    assert(abs(score) <= Infinity);
+  }
+
+  //---------------------------------------------------------------------------
+  int GetScore() const {
     return score;
   }
 
@@ -118,32 +126,37 @@ public:
 
   //---------------------------------------------------------------------------
   MoveType Type() const {
-    return static_cast<MoveType>(bits & 0xF);
+    return static_cast<MoveType>(bits & FourBits);
   }
 
   //---------------------------------------------------------------------------
   int To() const {
-    return static_cast<int>((bits >> ToShift) & 0xFF);
+    return static_cast<int>((bits >> ToShift) & EightBits);
   }
 
   //---------------------------------------------------------------------------
   int From() const {
-    return static_cast<int>((bits >> FromShift) & 0xFF);
+    return static_cast<int>((bits >> FromShift) & EightBits);
   }
 
   //---------------------------------------------------------------------------
   int Cap() const {
-    return static_cast<int>((bits >> CapShift) & 0xF);
+    return static_cast<int>((bits >> CapShift) & FourBits);
   }
 
   //---------------------------------------------------------------------------
   int Promo() const {
-    return static_cast<int>((bits >> PromoShift) & 0xF);
+    return static_cast<int>((bits >> PromoShift) & FourBits);
   }
 
   //---------------------------------------------------------------------------
-  int HistoryIndex() const {
-    return static_cast<int>(bits & 0xFFF);
+  int TypeToIndex() const {
+    return static_cast<int>(bits & TwelveBits);
+  }
+
+  //---------------------------------------------------------------------------
+  int ToFromIndex() const {
+    return static_cast<int>((bits >> FourBits) & SixteenBits);
   }
 
   //---------------------------------------------------------------------------
@@ -162,6 +175,16 @@ public:
   }
 
   //---------------------------------------------------------------------------
+  bool operator!() const {
+    return !Type();
+  }
+
+  //---------------------------------------------------------------------------
+  operator bool() const {
+    return Type();
+  }
+
+  //---------------------------------------------------------------------------
   void SwapWith(Move& other) {
     const uint32_t tbits  = bits;
     const int32_t  tscore = score;
@@ -173,19 +196,24 @@ public:
 
   //---------------------------------------------------------------------------
   std::string ToString() const {
-    std::string str;
+    char sbuf[8];
+    char* p = sbuf;
     if (bits) {
-      str = (senjo::Square(From()).ToString() + senjo::Square(To()).ToString());
+      *p++ = ('a' + XC(From()));
+      *p++ = ('1' + YC(From()));
+      *p++ = ('a' + XC(To()));
+      *p++ = ('1' + YC(To()));
       switch (Promo()) {
-      case (White|Knight): case (Black|Knight): return (str + "n");
-      case (White|Bishop): case (Black|Bishop): return (str + "b");
-      case (White|Rook):   case (Black|Rook):   return (str + "r");
-      case (White|Queen):  case (Black|Queen):  return (str + "q");
+      case (White|Knight): case (Black|Knight): *p++ = 'n'; break;
+      case (White|Bishop): case (Black|Bishop): *p++ = 'b'; break;
+      case (White|Rook):   case (Black|Rook):   *p++ = 'r'; break;
+      case (White|Queen):  case (Black|Queen):  *p++ = 'q'; break;
       default:
         break;
       }
     }
-    return str;
+    *p = 0;
+    return sbuf;
   }
 
   //---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ namespace clunk
 {
 
 //----------------------------------------------------------------------------
-class Node;
+struct Node;
 
 //----------------------------------------------------------------------------
 class Clunk : public senjo::ChessEngine
@@ -33,6 +33,7 @@ public:
   std::string GetEngineVersion() const;
   std::string GetFEN() const;
   void ClearSearchData();
+  void ClearStopFlags();
   void Initialize();
   void PonderHit();
   void PrintBoard() const;
@@ -67,4 +68,3 @@ private:
 } // namespace clunk
 
 #endif // CLUNK_H
-
