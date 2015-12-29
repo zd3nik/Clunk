@@ -33,7 +33,7 @@ struct Stats
   uint64_t execs;         // Exec() calls
   uint64_t qexecs;        // delta candidates
   uint64_t deltaCount;    // delta prunings
-  uint64_t futility;      // futility prunings
+  uint64_t staticNM;      // static null move pruning
   uint64_t rzrCount;      // razoring attempts
   uint64_t rzrEarlyOut;   // razoring early descent into qsearch
   uint64_t rzrCutoffs;    // successful razorings

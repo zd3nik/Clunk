@@ -147,9 +147,6 @@ int         _depth = 0;
 int         _seldepth = 0;
 int         _movenum = 0;
 int         _drawScore[2] = {0};
-int         _qsearchDelta[MaxPlies] = {0};
-int         _razorDelta[5] = {0};
-int         _futilityDelta[5] = {0};
 uint64_t    _startTime = 0;
 bool        _debug = false;
 char        _hist[TwelveBits + 1] = {0};
@@ -160,35 +157,6 @@ Stats       _totalStats;
 //-----------------------------------------------------------------------------
 TranspositionTable<PawnEntry> _pawnTT;
 TranspositionTable<HashEntry> _tt;
-
-//-----------------------------------------------------------------------------
-int QSearchDelta(const int depth) {
-  const double x = (depth + 1);
-  return static_cast<int>(150 + (1 / ((x * x) / 1400)));
-}
-
-//-----------------------------------------------------------------------------
-int RazorDelta(const int depth) {
-  const double x = (64 * depth);
-  return static_cast<int>(512 + (x * (x / 128)));
-}
-
-//-----------------------------------------------------------------------------
-int FutilityDelta(const int depth) {
-  const double x = (200 * depth);
-  return std::max<int>((200 * depth), static_cast<int>(x * (x / 256)));
-}
-
-//-----------------------------------------------------------------------------
-void InitDeltas() {
-  for (int depth = 0; depth < MaxPlies; ++depth) {
-    _qsearchDelta[depth] = QSearchDelta(depth);
-  }
-  for (int depth = 0; depth < 5; ++depth) {
-    _razorDelta[depth] = RazorDelta(depth);
-    _futilityDelta[depth] = FutilityDelta(depth);
-  }
-}
 
 //-----------------------------------------------------------------------------
 void InitSearch(const Color colorToMove, const uint64_t startTime) {
@@ -1232,7 +1200,6 @@ struct Node
   //---------------------------------------------------------------------------
   // updated during search
   //---------------------------------------------------------------------------
-  bool pruneOK;
   int depthChange;
   int pvCount;
   Move killer[2];
@@ -1274,12 +1241,14 @@ struct Node
 
   //---------------------------------------------------------------------------
   inline void AddKiller(const Move& move) {
-    assert(lastMove.IsValid());
     if (move != killer[0]) {
       killer[1] = killer[0];
       killer[0] = move;
     }
-//    counter[lastMove.From()][lastMove.To()] = move;
+//    if (lastMove) {
+//      assert(lastMove.IsValid());
+//      counter[lastMove.From()][lastMove.To()] = move;
+//    }
   }
 
   //---------------------------------------------------------------------------
@@ -2807,7 +2776,10 @@ struct Node
       assert(_board[to]->sqr == to);
       AddAttacksFrom(_board[to]->type, to);
     }
-//    assert(VerifyAttacks(true));
+
+#ifdef VERIFY_ATTACKS
+    assert(VerifyAttacks(true));
+#endif
 
     dest.FindCheckers<!color>();
   }
@@ -2830,7 +2802,7 @@ struct Node
     assert(_seenFilter[positionKey & SeenFilterMask]);
     _seenFilter[positionKey & SeenFilterMask]--;
 
-#ifndef NDEBUG
+#if 0
     assert(_seenStackTop > _seenStack);
     _seenStackTop--;
 #endif
@@ -3026,7 +2998,9 @@ struct Node
       UpdateKingDirs<Black>(to, from);
     }
 
-//    assert(VerifyAttacks(true));
+#if 0
+    assert(VerifyAttacks(true));
+#endif
   }
 
   //---------------------------------------------------------------------------
@@ -3054,7 +3028,9 @@ struct Node
     assert(standPat > (ply - Infinity));
     dest.checks = 0;
 
-//    assert(VerifyAttacks(true));
+#if 0
+    assert(VerifyAttacks(true));
+#endif
   }
 
   //---------------------------------------------------------------------------
@@ -4019,13 +3995,9 @@ struct Node
         depth++;
       }
     }
-//    else {
-//      // update standPat with full static positional evaluation
-//      Evaluate();
-//    }
 
-    int eval = standPat;
     const bool pvNode = (type == PV);
+    int eval = Infinity;
     Move firstMove;
 
     // transposition table
@@ -4046,9 +4018,9 @@ struct Node
           pvCount = 1;
           return firstMove.GetScore();
         }
-//        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() < eval)) {
-//          eval = firstMove.GetScore();
-//        }
+        if (entry->Depth() >= (depth - 3)) {
+          eval = std::min<int>(eval, firstMove.GetScore());
+        }
         break;
       case HashEntry::ExactScore:
         assert(entry->HasPvFlag());
@@ -4069,9 +4041,9 @@ struct Node
           }
           return firstMove.GetScore();
         }
-//        if (entry->Depth() >= (depth - 3)) {
-//          eval = firstMove.GetScore();
-//        }
+        if (entry->Depth() >= (depth - 3)) {
+          eval = std::min<int>(eval, firstMove.GetScore());
+        }
         break;
       case HashEntry::LowerBound:
         firstMove.Init(entry->MoveBits(), entry->Score(ply));
@@ -4087,9 +4059,6 @@ struct Node
           }
           return firstMove.GetScore();
         }
-//        if ((entry->Depth() >= (depth - 3)) & (firstMove.GetScore() > eval)) {
-//          eval = firstMove.GetScore();
-//        }
         break;
       default:
         assert(false);
@@ -4103,74 +4072,43 @@ struct Node
       }
     }
 
-    // forward pruning prerequisites
-//    if (pvNode || !(pruneOK & !checks & (depthChange <= 0))) {
-//      goto search_main;
-//    }
+    // forward pruning (the risky stuff)
+    if (!pvNode && (cutNode & (depthChange <= 0) & !checks) &&
+        ((_pcount[color] + _pcount[color|Knight]) > 1) &&
+        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn] > 2)))
+    {
+      Evaluate();
+      eval = std::min<int>(eval, standPat);
 
-    // razoring (fail low pruning)
-//    if ((depth < 4) & (abs(alpha) < WinningScore) &
-//        // TODO && no pawns on 2nd/7th rank
-//        !parent->checks & ((eval + _razorDelta[depth]) <= alpha))
-//    {
-//      _stats.rzrCount++;
-//      if ((depth <= 1) && ((eval + _razorDelta[3 * depth]) <= alpha)) {
-//        _stats.rzrEarlyOut++;
-//        return QSearch<color>(alpha, beta, 0);
-//      }
-//      const int ralpha = (alpha - _razorDelta[depth]);
-//      const int val = QSearch<color>(ralpha, (ralpha + 1), 0);
-//      if (_stop) {
-//        return beta;
-//      }
-//      if (val <= ralpha) {
-//        _stats.rzrCutoffs++;
-//        return val;
-//      }
-//      moveCount = pvCount = 0;
-//    }
+      // static null move pruning
+      if ((depth == 1) & (abs(beta) < WinningScore) &
+          ((eval - (3 * PawnValue)) >= beta))
+      {
+        assert(!moveCount);
+        assert(!pvCount);
+        _stats.staticNM++;
+        return beta;
+      }
 
-    // null move heuristics prerequisites
-//    if (((_pcount[color] + _pcount[color|Knight]) < 2) |
-//        ((_pcount[color] + _pcount[color|Knight] + _pcount[color|Pawn]) < 4))
-//    {
-//      goto search_main;
-//    }
-
-    // futility pruning (static null move pruning)
-//    if (cutNode & (depth < 5) & (abs(beta) < WinningScore) &
-//        ((eval - _futilityDelta[depth]) >= beta))
-//    {
-//      assert(!moveCount);
-//      assert(!pvCount);
-//      _stats.futility++;
-//      return beta; // TODO (eval - _futilityDelta[depth]);
-//    }
-
-    // null move pruning
-//    if ((depth > 1) & (eval >= beta)) {
-//      assert(!moveCount);
-//      assert(!pvCount);
-//      ExecNullMove<color>(*child);
-//      child->pruneOK = false;
-//      child->depthChange = 0;
-//      const int rdepth = (depth - 3 - (depth / 6) - ((eval - 400) >= beta));
-//      eval = (rdepth > 0)
-//          ? -child->Search<NonPV, !color>(-beta, -alpha, rdepth, false)
-//          : -child->QSearch<!color>(-beta, -alpha, 0);
-//      if (_stop) {
-//        return beta;
-//      }
-//      if (eval >= beta) {
-//        // TODO do verification search if depth reduction > 4
-//        _stats.nmCutoffs++;
-//        return (standPat >= beta) ? standPat : beta; // do not return eval
-//      }
-//    }
-
-//search_main:
-
-    pruneOK = false;
+      // null move pruning
+      if ((depth > 1) & (eval >= beta)) {
+        assert(!moveCount);
+        assert(!pvCount);
+        ExecNullMove<color>(*child);
+        child->depthChange = 0;
+        const int rdepth = (depth - 3 - (depth / 6) - ((eval - 500) >= beta));
+        eval = (rdepth > 0)
+            ? -child->Search<NonPV, !color>(-beta, -alpha, rdepth, false)
+            : -child->QSearch<!color>(-beta, -alpha, 0);
+        if (_stop) {
+          return beta;
+        }
+        if (eval >= beta) {
+          _stats.nmCutoffs++;
+          return (standPat >= beta) ? standPat : beta; // do not return eval
+        }
+      }
+    }
 
     // internal iterative deepening
     if ((!firstMove) & (beta < Infinity) & (depth >= (pvNode ? 4 : 6))) {
@@ -4217,7 +4155,6 @@ struct Node
     assert(depth > 0);
     const int orig_alpha = alpha;
     Exec<color>(firstMove, *child);
-    child->pruneOK = true;
     child->depthChange = 0;
     best = (depth > 1)
         ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), !cutNode)
@@ -4262,7 +4199,7 @@ struct Node
     }
 
     // search remaining moves
-//    const bool lmr_ok = (!(pvNode & !firstMove.Type()) & !checks & (depth > 2));
+    const bool lmr_ok = (!(pvNode & (!firstMove)) & (!checks) & (depth > 2));
     Move* move;
     moveIndex = 0;
     while ((move = GetNextMove())) {
@@ -4275,22 +4212,20 @@ struct Node
 
       // late move reductions
       _stats.lateMoves++;
-//      _stats.lmCandidates += lmr_ok;
-//      if (lmr_ok &
-//          (!pvNode || (moveIndex > 3)) &
-//          !move->IsCapOrPromo() &
-//          !IsKiller(*move) &
-//          !child->checks &
-//          (_hist[move->HistoryIndex()] < 0))
-//      {
-//        _stats.lmReductions++;
-//        child->pruneOK = true;
-//        child->depthChange = -(1 + (cutNode | (standPat < -parent->standPat)));
-//      }
-//      else {
-        child->pruneOK = true;
+      _stats.lmCandidates += lmr_ok;
+      if (lmr_ok &
+          (!pvNode || (moveIndex > 3)) &
+          !move->IsCapOrPromo() &
+          !IsKiller(*move) &
+          !child->checks &
+          (_hist[move->TypeToIndex()] < 0))
+      {
+        _stats.lmReductions++;
+        child->depthChange = -(1 + (cutNode | (standPat < -parent->standPat)));
+      }
+      else {
         child->depthChange = 0;
-//      }
+      }
 
       // first search with a null window to quickly see if it improves alpha
       eval = ((depth + child->depthChange - 1) > 0)
@@ -4298,21 +4233,19 @@ struct Node
           : -child->QSearch<!color>(-(alpha + 1), -alpha, 0);
 
       // re-search at full depth?
-//      if (!_stop && (eval > alpha) && (child->depthChange < 0)) {
-//        assert(depth > 1);
-//        _stats.lmResearches++;
-//        child->pruneOK = false;
-//        child->depthChange = 0;
-//        eval = -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), false);
-//        if (!_stop && (eval > alpha)) {
-//          _stats.lmConfirmed++;
-//        }
-//      }
+      if (!_stop && (eval > alpha) && (child->depthChange < 0)) {
+        assert(depth > 1);
+        _stats.lmResearches++;
+        child->depthChange = 0;
+        eval = -child->Search<NonPV, !color>(-(alpha + 1), -alpha, (depth - 1), false);
+        if (!_stop && (eval > alpha)) {
+          _stats.lmConfirmed++;
+        }
+      }
 
       // re-search with full window?
       if (!_stop && pvNode && (eval > alpha)) {
         assert(child->depthChange >= 0);
-        child->pruneOK = false;
         eval = (depth > 1)
             ? -child->Search<type, !color>(-beta, -alpha, (depth - 1), false)
             : -child->QSearch<!color>(-beta, -alpha, 0);
@@ -4388,7 +4321,6 @@ struct Node
 
     // TODO disable timer
 
-    pruneOK = false;
     depthChange = 0;
 
     GenerateMoves<color, false>(depth);
@@ -4468,7 +4400,6 @@ struct Node
         _currmove = move->ToString();
         _movenum  = (moveIndex + 1);
 
-        child->pruneOK = true;
         child->depthChange = 0;
         Exec<color>(*move, *child);
         score = (_depth > 1)
@@ -4504,7 +4435,6 @@ struct Node
               }
               beta = (score + 1);
             }
-            child->pruneOK = false;
             child->depthChange = 0;
             score = (_depth > 1)
                 ? -child->Search<PV, !color>(-beta, -alpha, (_depth - 1), false)
@@ -5061,7 +4991,6 @@ void Clunk::ClearStopFlags() {
 //-----------------------------------------------------------------------------
 void Clunk::Initialize() {
   InitNodes();
-  InitDeltas();
   InitDistDir();
   InitMoveMaps();
 

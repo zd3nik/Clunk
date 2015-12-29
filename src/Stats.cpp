@@ -28,7 +28,7 @@ void Stats::Clear()
   execs         = 0;
   qexecs        = 0;
   deltaCount    = 0;
-  futility      = 0;
+  staticNM      = 0;
   rzrCount      = 0;
   rzrEarlyOut   = 0;
   rzrCutoffs    = 0;
@@ -63,7 +63,7 @@ Stats& Stats::operator+=(const Stats& other) {
   execs         += other.execs;
   qexecs        += other.qexecs;
   deltaCount    += other.deltaCount;
-  futility      += other.futility;
+  staticNM      += other.staticNM;
   rzrCount      += other.rzrCount;
   rzrEarlyOut   += other.rzrEarlyOut;
   rzrCutoffs    += other.rzrCutoffs;
@@ -107,7 +107,7 @@ Stats Stats::Average() const {
   avg.execs         = Avg(execs,        statCount);
   avg.qexecs        = Avg(qexecs,       statCount);
   avg.deltaCount    = Avg(deltaCount,   statCount);
-  avg.futility      = Avg(futility,     statCount);
+  avg.staticNM      = Avg(staticNM,     statCount);
   avg.rzrCount      = Avg(rzrCount,     statCount);
   avg.rzrEarlyOut   = Avg(rzrEarlyOut,  statCount);
   avg.rzrCutoffs    = Avg(rzrCutoffs,   statCount);
@@ -165,8 +165,8 @@ void Stats::Print() {
              << Percent(rzrCutoffs, rzrCount) << "%)";
   }
 
-  if (futility) {
-    Output() << futility << " futility prunings";
+  if (staticNM) {
+    Output() << staticNM << " static null move pruning";
   }
 
   if (nullMoves) {
