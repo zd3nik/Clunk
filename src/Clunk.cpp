@@ -2777,7 +2777,7 @@ struct Node
       AddAttacksFrom(_board[to]->type, to);
     }
 
-#ifdef VERIFY_ATTACKS
+#if 0
     assert(VerifyAttacks(true));
 #endif
 
@@ -2802,7 +2802,7 @@ struct Node
     assert(_seenFilter[positionKey & SeenFilterMask]);
     _seenFilter[positionKey & SeenFilterMask]--;
 
-#if 0
+#ifndef NDEBUG
     assert(_seenStackTop > _seenStack);
     _seenStackTop--;
 #endif
@@ -4913,6 +4913,9 @@ const char* Clunk::SetPosition(const char* fen) {
     if (root->mcount) {
       root->mcount = (((root->mcount - 1) * 2) + COLOR(root->state));
     }
+  }
+
+  while (p && (*p == '-')) {
     p = NextSpace(p);
     p = NextWord(p);
   }

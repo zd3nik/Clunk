@@ -55,4 +55,3 @@ HEADERS += \
 
 DISTFILES += \
     epd/*.epd
-
