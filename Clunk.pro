@@ -2,14 +2,16 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
-QMAKE_CXXFLAGS_RELEASE -= -mtune=generic
-QMAKE_CXXFLAGS_RELEASE += -mtune=native
 
 INCLUDEPATH += .
 INCLUDEPATH += src
 
-unix:QMAKE_CXXFLAGS += -std=c++11
-unix::LIBS += -lpthread
+unix {
+  QMAKE_CXXFLAGS_RELEASE -= -mtune=generic
+  QMAKE_CXXFLAGS_RELEASE += -mtune=native
+  QMAKE_CXXFLAGS += -std=c++11
+  LIBS += -lpthread
+}
 
 CONFIG(release, debug|release) {
   message(Release build!)

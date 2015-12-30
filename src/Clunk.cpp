@@ -1565,7 +1565,7 @@ struct Node
     int to;
 
     int kdir = 0;
-    if (qsearch && !depth) {
+    if (qsearch & (!depth)) {
       kdir = GetDiscoverDir(color, from);
       if (abs(kdir) == North) {
         kdir = 0;
@@ -1921,7 +1921,7 @@ struct Node
     assert(_board[from] == _KING[color]);
 
     int kdir = 0;
-    if (qsearch && !depth) {
+    if (qsearch & (!depth)) {
       kdir = GetDiscoverDir(color, from);
     }
 
@@ -4963,7 +4963,7 @@ std::string Clunk::GetEngineVersion() const {
   if (rev.size() > 7) {
     rev = rev.substr(0, 7);
   }
-  return ("1.0." + rev);
+  return ("1.1." + rev);
 }
 
 //-----------------------------------------------------------------------------
