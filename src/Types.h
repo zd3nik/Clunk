@@ -122,6 +122,7 @@ enum {
   WhiteKingOffset   = 2,
   BlackKingOffset   = 3,
   PawnOffset        = 4,
+  AspirationDepth   = 5,
   BlackPawnOffset   = 12,
   KnightOffset      = 20,
   BlackKnightOffset = 30,
