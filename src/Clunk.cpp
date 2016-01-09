@@ -3401,13 +3401,6 @@ struct Node
       score -= (16 * (_pcount[color|Knight] - 1));
     }
 
-    // loner knight worth less than a pawn
-//    else if ((_pcount[color|Knight] == 1) &
-//             !(_pcount[color] + _pcount[color|Pawn]))
-//    {
-//      score += ((PawnValue / 2) - KnightValue);
-//    }
-
     for (int i = _pcount[color|Knight]; i--; ) {
       assert(i >= 0);
       const int sqr = _piece[KnightOffset + i + (10 * color)].sqr;
@@ -3465,13 +3458,6 @@ struct Node
     if (_pcount[color|Bishop] > 1) {
       score += (48 - ((5 * (_pcount[White|Pawn] + _pcount[Black|Pawn])) / 3));
     }
-
-    // loner bishop worth less than a pawn
-//    else if ((_pcount[color|Bishop] == 1) &
-//             ((_pcount[color]+_pcount[color|Pawn]+_pcount[color|Knight]) == 1))
-//    {
-//      score += ((PawnValue / 2) - BishopValue);
-//    }
 
     for (int i = _pcount[color|Bishop]; i--; ) {
       assert(i >= 0);
@@ -4015,9 +4001,7 @@ struct Node
           pvCount = 1;
           return firstMove.GetScore();
         }
-        if (entry->Depth() >= (depth - 3)) {
-          eval = std::min<int>(eval, firstMove.GetScore());
-        }
+        eval = firstMove.GetScore();
         break;
       case HashEntry::ExactScore:
         firstMove.Init(entry->MoveBits(), entry->Score(ply));
@@ -4040,9 +4024,7 @@ struct Node
           }
           return firstMove.GetScore();
         }
-        if (entry->Depth() >= (depth - 3)) {
-          eval = std::min<int>(eval, firstMove.GetScore());
-        }
+        eval = firstMove.GetScore();
         break;
       case HashEntry::LowerBound:
         firstMove.Init(entry->MoveBits(), entry->Score(ply));
@@ -4081,10 +4063,10 @@ struct Node
     {
       assert((alpha + 1) == beta);
       Evaluate();
+      eval = std::min<int>(eval, standPat);
 
       // static null move pruning
       if (depth == 1) {
-        eval = std::min<int>(eval, standPat);
         if ((eval >= (beta + (3 * PawnValue))) & (abs(beta) < WinningScore)) {
           _stats.staticNM++;
           depthChange = -1;
@@ -4111,6 +4093,7 @@ struct Node
     }
 
     assert(!moveIndex);
+    assert(!moveCount);
 
     // internal iterative deepening
     if ((!firstMove) & (depth > 3)) {
@@ -4236,7 +4219,6 @@ struct Node
               : -child->QSearch<!color>(-beta, -alpha, 0);
         }
         else if (d < (depth - 1)) {
-          assert(child->depthChange >= 0);
           assert((alpha + 1) == beta);
           _stats.lmResearches++;
           d = (depth - 1);

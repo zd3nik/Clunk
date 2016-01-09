@@ -56,4 +56,5 @@ HEADERS += \
     src/Defs.h
 
 DISTFILES += \
-    epd/*.epd
+    epd/*.epd \
+    epd/sting.epd
