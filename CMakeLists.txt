@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.1)
+include(init.cmake)
 
 #-----------------------------------------------------------------------------
 # Build senjo lib
@@ -11,7 +12,6 @@ cmake_minimum_required(VERSION 2.8)
 # So I'll just do everything here in this top-level CMakeLists.txt
 #-----------------------------------------------------------------------------
 project(senjo CXX)
-include(init.cmake)
 set(OBJ_HDR
     src/senjo/BackgroundCommand.h
     src/senjo/ChessMove.h
@@ -36,7 +36,7 @@ set(OBJ_SRC
 
 include_directories(src/senjo)
 add_library(${PROJECT_NAME} STATIC ${OBJ_HDR} ${OBJ_SRC})
-if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+if(CMAKE_COMPILER_IS_GNUCXX)
     target_link_libraries(${PROJECT_NAME} pthread)
 endif()
 
@@ -47,7 +47,6 @@ endif()
 # directory.  See comment above, in the build senjo section.
 #-----------------------------------------------------------------------------
 project(clunk CXX)
-include(init.cmake)
 set(OBJ_HDR
     src/Clunk.h
     src/Defs.h

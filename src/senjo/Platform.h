@@ -29,15 +29,14 @@
 #define GIT_REV norev
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <Windows.h>
 #pragma warning(disable:4800)
 #pragma warning(disable:4806)
 #pragma warning(disable:4996)
 #define PRId64 "lld"
 #define PRIu64 "llu"
-#define snprintf _snprintf
-#else // not WIN32
+#else // not _WIN32
 #define __STDC_LIMIT_MACROS
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -69,7 +68,7 @@ namespace senjo
 //-----------------------------------------------------------------------------
 static inline uint64_t Now()
 {
-#ifdef WIN32
+#ifdef _WIN32
   return static_cast<uint64_t>(GetTickCount());
 #else
   struct timeval tv;
@@ -80,7 +79,7 @@ static inline uint64_t Now()
 
 static inline bool MillisecondSleep(const unsigned int msecs)
 {
-#ifdef WIN32
+#ifdef _WIN32
   SetLastError(0);
   Sleep(msecs);
   return GetLastError() ? false : true;
@@ -97,12 +96,12 @@ static inline bool MillisecondSleep(const unsigned int msecs)
 //-----------------------------------------------------------------------------
 static inline double ToDouble(const uint64_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 #pragma warning(push)
 #pragma warning(disable:4244)
 #endif
   return static_cast<double>(value);
-#ifdef WIN32
+#ifdef _WIN32
 #pragma warning(pop)
 #endif
 }

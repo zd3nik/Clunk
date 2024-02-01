@@ -28,7 +28,7 @@ namespace senjo
 //-----------------------------------------------------------------------------
 Mutex::Mutex()
 {
-#ifdef WIN32
+#ifdef _WIN32
   mutex = CreateMutex(NULL, FALSE, NULL);
   if (!mutex) {
     std::cerr << "Unable to create mutex: error code " << GetLastError()
@@ -42,7 +42,7 @@ Mutex::Mutex()
 //-----------------------------------------------------------------------------
 Mutex::~Mutex()
 {
-#ifdef WIN32
+#ifdef _WIN32
   if (mutex) {
     CloseHandle(mutex);
     mutex= NULL;
@@ -55,7 +55,7 @@ Mutex::~Mutex()
 //-----------------------------------------------------------------------------
 void Mutex::Lock()
 {
-#ifdef WIN32
+#ifdef _WIN32
   if (mutex) {
     WaitForSingleObject(mutex, INFINITE);
   }
@@ -67,7 +67,7 @@ void Mutex::Lock()
 //-----------------------------------------------------------------------------
 void Mutex::Unlock()
 {
-#ifdef WIN32
+#ifdef _WIN32
   if (mutex) {
     ReleaseMutex(mutex);
   }
@@ -81,7 +81,7 @@ Thread::Thread()
   : threadFunction(NULL),
     threadParam(NULL)
 {
-#ifdef WIN32
+#ifdef _WIN32
   thread = NULL;
 #else
   running = false;
@@ -101,7 +101,7 @@ bool Thread::Start(void (*function)(void*), void* param)
     std::cerr << "NULL thread function" << std::endl;
     return false;
   }
-#ifdef WIN32
+#ifdef _WIN32
   if (thread) {
     std::cerr << "Thread::Start() already active" << std::endl;
     return false;
@@ -135,7 +135,7 @@ bool Thread::Start(void (*function)(void*), void* param)
 //-----------------------------------------------------------------------------
 bool Thread::Active() const
 {
-#ifdef WIN32
+#ifdef _WIN32
   return (thread != NULL);
 #else
   return running;
@@ -145,7 +145,7 @@ bool Thread::Active() const
 //-----------------------------------------------------------------------------
 void Thread::Join()
 {
-#ifdef WIN32
+#ifdef _WIN32
   if (thread) {
     WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
@@ -161,7 +161,7 @@ void Thread::Join()
 }
 
 //-----------------------------------------------------------------------------
-#ifdef WIN32
+#ifdef _WIN32
 DWORD Thread::RunThreadFunction(LPVOID param)
 {
   if (param) {

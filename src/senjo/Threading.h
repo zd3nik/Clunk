@@ -59,7 +59,7 @@ public:
   void Unlock();
 
 private:
-#ifdef WIN32
+#ifdef _WIN32
   HANDLE mutex;
 #else
   pthread_mutex_t mutex;
@@ -107,7 +107,7 @@ private:
   void (*threadFunction)(void*);
   void* threadParam;
 
-#ifdef WIN32
+#ifdef _WIN32
   static DWORD RunThreadFunction(LPVOID);
   HANDLE thread;
   DWORD threadID;
