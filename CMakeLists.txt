@@ -1,5 +1,22 @@
-cmake_minimum_required(VERSION 3.1)
-include(init.cmake)
+cmake_minimum_required(VERSION 3.10)
+
+execute_process(
+  COMMAND git log "--pretty=format:%H" -n 1
+  OUTPUT_VARIABLE GIT_REV)
+
+message("-- GIT_REV ${GIT_REV}")
+
+set(CMAKE_CXX_STANDARD 14)
+add_compile_definitions(GIT_REV=${GIT_REV})
+if(WIN32)
+    add_compile_options(/EHsc)
+else()
+    add_compile_options(-fPIC -m64 -Wall -Wextra -Wpedantic)
+endif()
+
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 
 #-----------------------------------------------------------------------------
 # Build senjo lib
